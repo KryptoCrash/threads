@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threads</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e;
+  --muted: #898781; --hairline: #e1e0d9; --baseline: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;            /* importance hue (blue, step 450) */
+  --urgency: #eb6834;           /* urgency hue (orange, categorical slot 2) */
+  --st-active: #2a78d6; --st-waiting: #fab219; --st-done: #0ca30c; --st-dropped: #898781;
+  --danger: #d03b3b;
+  --shadow: 0 8px 30px rgba(11,11,11,0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --hairline: #2c2c2a; --baseline: #383835;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --urgency: #d95926;
+    --st-active: #3987e5;
+    --shadow: 0 8px 30px rgba(0,0,0,0.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+  --muted: #898781; --hairline: #2c2c2a; --baseline: #383835;
+  --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --urgency: #d95926;
+  --st-active: #3987e5;
+  --shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+mark { background: color-mix(in srgb, var(--urgency) 30%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+a { color: var(--accent); }
+::placeholder { color: var(--muted); }
+
+/* ---------- header ---------- */
+header {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  background: var(--surface); border-bottom: 1px solid var(--hairline); flex: none;
+}
+header .brand { font-weight: 700; font-size: 15px; letter-spacing: 0.2px; }
+header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+#search {
+  flex: 1; min-width: 100px; max-width: 520px; padding: 6px 10px;
+  background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; outline: none;
+}
+#search:focus { border-color: var(--accent); }
+.seg { display: flex; border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 6px 12px; color: var(--ink-2); }
+.seg button.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--ink); font-weight: 600; }
+.btn {
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px;
+  padding: 6px 12px; color: var(--ink);
+}
+.btn:hover { border-color: var(--baseline); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.danger { color: var(--danger); }
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 230px;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 6px; display: none;
+}
+.menu.open { display: block; }
+.menu button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 8px 10px; border-radius: 6px; }
+.menu button:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.menu hr { border: 0; border-top: 1px solid var(--hairline); margin: 6px 0; }
+.menu .note { padding: 4px 10px 6px; color: var(--muted); font-size: 12px; }
+
+/* ---------- layout ---------- */
+.app { flex: 1; display: grid; grid-template-columns: 210px 340px 1fr; min-height: 0; }
+.rail, .listcol { border-right: 1px solid var(--hairline); background: var(--surface); overflow-y: auto; min-height: 0; }
+.rail { padding: 12px; }
+.listcol { display: flex; flex-direction: column; }
+.detailcol { overflow-y: auto; min-height: 0; background: var(--page); }
+
+/* ---------- rail (filters) ---------- */
+.rail h4 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); }
+.rail h4:first-child { margin-top: 0; }
+.frow {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 7px; border: 0; background: none; border-radius: 6px; text-align: left; color: var(--ink-2);
+}
+.frow:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.frow.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
+.frow .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.frow .n { margin-left: auto; color: var(--muted); font-size: 12px; }
+.rail select { width: 100%; padding: 6px 8px; background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; }
+.rail .meter { margin-top: 16px; font-size: 11px; color: var(--muted); }
+.rail .meter .bar { height: 4px; background: var(--hairline); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.rail .meter .bar i { display: block; height: 100%; background: var(--accent); }
+
+/* ---------- thread list ---------- */
+.listhead { padding: 10px 14px 6px; color: var(--muted); font-size: 12px; flex: none; }
+.cards { flex: 1; overflow-y: auto; padding: 0 8px 12px; }
+.card {
+  width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 10px; padding: 10px 12px; margin: 6px 2px; display: block; position: relative;
+}
+.card:hover { border-color: var(--baseline); }
+.card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.card .t { font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--muted); font-size: 12px; }
+.card .snippet { margin-top: 6px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.card .tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+.tagchip { font-size: 11px; padding: 1px 7px; border-radius: 20px; border: 1px solid var(--hairline); color: var(--ink-2); background: var(--page); }
+.stat { display: inline-flex; align-items: center; gap: 5px; }
+.stat .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* rating mini-bar: 7 cells, fill length = value; hue = dimension */
+.rate { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.rate .cells { display: inline-flex; gap: 2px; }
+.rate .cells i { width: 5px; height: 10px; border-radius: 2px; background: var(--hairline); }
+.rate.imp .cells i.f { background: var(--accent); }
+.rate.urg .cells i.f { background: var(--urgency); }
+.rate b { font-weight: 600; color: var(--ink-2); font-size: 12px; }
+
+/* ---------- detail ---------- */
+.detail { max-width: 860px; padding: 18px 24px 60px; }
+.detail .empty { color: var(--muted); padding: 60px 20px; text-align: center; }
+#d-title {
+  width: 100%; font-size: 20px; font-weight: 700; border: 0; background: transparent;
+  outline: none; padding: 4px 0; border-bottom: 1px solid transparent;
+}
+#d-title:focus { border-bottom-color: var(--accent); }
+.controls { display: flex; flex-wrap: wrap; gap: 16px 28px; margin: 12px 0 4px; align-items: flex-start; }
+.ctl label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin-bottom: 5px; }
+.scale { display: flex; border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; }
+.scale button { width: 34px; padding: 5px 0; background: transparent; border: 0; border-right: 1px solid var(--hairline); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.scale button:last-child { border-right: 0; }
+.scale.imp button.on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink); font-weight: 700; box-shadow: 0 -2px 0 var(--accent) inset; }
+.scale.urg button.on { background: color-mix(in srgb, var(--urgency) 18%, transparent); color: var(--ink); font-weight: 700; box-shadow: 0 -2px 0 var(--urgency) inset; }
+#d-status { padding: 6px 8px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px; }
+.tagedit { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.tagedit .tagchip button { border: 0; background: none; padding: 0 0 0 4px; color: var(--muted); }
+.tagedit input { border: 0; background: transparent; outline: none; min-width: 90px; padding: 2px; }
+.sect { margin-top: 22px; }
+.sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+.sect > h3 .count { font-weight: 400; }
+#d-body {
+  width: 100%; min-height: 76px; resize: vertical; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; outline: none;
+}
+#d-body:focus { border-color: var(--accent); }
+.comment { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; }
+.comment .head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+.comment .head .spacer { flex: 1; }
+.comment .head button { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; }
+.comment .head button:hover { color: var(--danger); }
+.comment .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.addbox { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
+.addbox textarea {
+  flex: 1; min-height: 40px; resize: vertical; padding: 8px 11px;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; outline: none;
+}
+.addbox textarea:focus { border-color: var(--accent); }
+.filezone { border: 1.5px dashed var(--baseline); border-radius: 10px; padding: 10px 12px; color: var(--muted); text-align: center; margin-bottom: 8px; }
+.filezone.drag { border-color: var(--accent); color: var(--accent); }
+.filezone button { border: 0; background: none; color: var(--accent); text-decoration: underline; padding: 0; }
+.filerow { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; }
+.filerow .icon { flex: none; width: 26px; text-align: center; }
+.filerow .fname { font-weight: 600; overflow-wrap: anywhere; }
+.filerow .fmeta { color: var(--muted); font-size: 12px; }
+.filerow .grow { flex: 1; min-width: 0; }
+.filerow .acts { display: flex; gap: 4px; }
+.filerow .acts button, .filerow .acts a { border: 0; background: none; color: var(--accent); font-size: 12px; padding: 2px 6px; text-decoration: none; }
+.filerow .acts .rm { color: var(--muted); }
+.filerow .acts .rm:hover { color: var(--danger); }
+.dates { color: var(--muted); font-size: 12px; margin-top: 26px; display: flex; gap: 18px; flex-wrap: wrap; }
+.dangerrow { margin-top: 10px; }
+
+/* ---------- matrix ---------- */
+.matrixcol { overflow: auto; padding: 18px; background: var(--page); }
+.mx { display: grid; grid-template-columns: 34px repeat(7, minmax(105px, 1fr)); grid-template-rows: repeat(7, minmax(84px, auto)) 30px; gap: 0; min-width: 800px; }
+.mx .cell { border: 0.5px solid var(--hairline); background: var(--surface); padding: 4px; position: relative; min-height: 84px; }
+.mx .cell .hint { position: absolute; inset: auto 6px 4px auto; font-size: 10px; color: var(--muted); opacity: 0.8; pointer-events: none; }
+.mx .ylab, .mx .xlab { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.mx .axis-name { color: var(--ink-2); font-weight: 600; }
+.mxchip {
+  display: flex; align-items: center; gap: 5px; width: 100%; text-align: left;
+  border: 1px solid var(--hairline); background: var(--page); border-radius: 6px;
+  padding: 2px 6px; margin: 2px 0; font-size: 12px;
+}
+.mxchip:hover { border-color: var(--accent); }
+.mxchip.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.mxchip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px var(--surface); }
+.mxchip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mxlegend { display: flex; gap: 16px; margin: 0 0 12px; color: var(--ink-2); font-size: 12px; flex-wrap: wrap; }
+.mxlegend .stat .dot { box-shadow: 0 0 0 2px var(--surface); }
+
+/* ---------- modal & toast ---------- */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 90; display: none; align-items: center; justify-content: center; }
+.overlay.open { display: flex; }
+.modal { background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; box-shadow: var(--shadow); max-width: 440px; width: calc(100% - 40px); padding: 18px 20px; }
+.modal h3 { margin: 0 0 8px; font-size: 15px; }
+.modal p { margin: 0 0 16px; color: var(--ink-2); white-space: pre-wrap; }
+.modal .btns { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+#toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 100;
+  background: var(--ink); color: var(--page); padding: 8px 16px; border-radius: 8px;
+  opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 80vw;
+}
+#toast.show { opacity: 0.95; }
+
+.kbd { border: 1px solid var(--hairline); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 11px; color: var(--muted); }
+#syncdot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+#syncdot.ok { background: var(--st-done); }
+#syncdot.busy { background: var(--st-waiting); }
+#syncdot.err { background: var(--danger); }
+.modal label { font-size: 12px; color: var(--muted); }
+.modal input[type="text"], .modal input:not([type]) {
+  width: 100%; margin: 4px 0 12px; padding: 7px 10px;
+  background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; outline: none;
+}
+.modal input:focus { border-color: var(--accent); }
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 980px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { display: none; border-right: 0; border-bottom: 1px solid var(--hairline); max-height: 45vh; }
+  .rail.open { display: block; }
+  .listcol { border-right: 0; }
+  .detailcol, .matrixcol { display: none; }
+  body.detail-open .detailcol { display: block; position: fixed; inset: 0; top: 49px; z-index: 50; background: var(--page); overflow-y: auto; }
+  body.matrix-mode .matrixcol { display: block; }
+  body.matrix-mode .listcol { display: none; }
+  #btn-filters { display: inline-block !important; }
+  #d-back { display: inline-block !important; }
+}
+#btn-filters, #d-back { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand">Threads<small id="brand-sub"></small></span>
+  <button class="btn" id="btn-filters">Filters</button>
+  <input id="search" type="search" placeholder="Search threads, comments, files…  ( / )" autocomplete="off">
+  <div class="seg" id="viewseg">
+    <button data-view="list" class="on">List</button>
+    <button data-view="matrix">Matrix</button>
+  </div>
+  <button class="btn primary" id="btn-new">+ New</button>
+  <span id="syncdot" style="display:none" title="Drive sync"></span>
+  <div class="menu-wrap">
+    <button class="btn" id="btn-data">Data ▾</button>
+    <div class="menu" id="datamenu">
+      <button id="m-export">Export JSON…</button>
+      <button id="m-exportmd">Export Markdown…</button>
+      <button id="m-import">Import JSON…</button>
+      <hr>
+      <button id="m-link">Link a save file…</button>
+      <button id="m-unlink" style="display:none">Unlink save file</button>
+      <div class="note" id="linknote">Not linked — data lives in this browser only. Link a JSON file to auto-save to disk.</div>
+      <hr>
+      <button id="m-drive">Connect Drive sync…</button>
+      <button id="m-syncnow" style="display:none">Sync now</button>
+      <div class="note" id="drivenote">Off — deploy the Apps Script bridge (DRIVE-SYNC-SETUP.md) to keep data in Google Drive.</div>
+      <hr>
+      <button id="m-theme">Theme: auto</button>
+    </div>
+  </div>
+</header>
+
+<div class="app" id="app">
+  <aside class="rail" id="rail"></aside>
+  <section class="listcol" id="listcol">
+    <div class="listhead" id="listhead"></div>
+    <div class="cards" id="cards"></div>
+  </section>
+  <section class="detailcol" id="detailcol"><div class="detail" id="detail"></div></section>
+  <section class="matrixcol" id="matrixcol" style="display:none"></section>
+</div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
+<input type="file" id="fileinput" multiple style="display:none">
+<input type="file" id="importinput" accept=".json,application/json" style="display:none">
+
+<script>
+'use strict';
+/* =============== state & persistence =============== */
+const LS_KEY = 'threads-tracker-v1', THEME_KEY = 'threads-theme';
+const STATUSES = {
+  active:  { label: 'Active',  color: 'var(--st-active)' },
+  waiting: { label: 'Waiting', color: 'var(--st-waiting)' },
+  done:    { label: 'Done',    color: 'var(--st-done)' },
+  dropped: { label: 'Dropped', color: 'var(--st-dropped)' },
+};
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+const now = () => new Date().toISOString();
+
+let storageOK = true;
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { storageOK = false; return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { storageOK = false; return false; } }
+
+let state = loadState();
+const ui = {
+  view: 'list', sel: null, q: '',
+  statusF: new Set(Object.keys(STATUSES)), tagF: new Set(),
+  sort: lsGet('threads-sort') || 'priority',
+  fileHandle: null, linkPaused: false,
+};
+
+function blankState() { return { version: 1, threads: [], tombstones: {} }; }
+function welcomeThread() {
+  const t = newThread('Welcome — how this app works');
+  t.importance = 3; t.urgency = 2;
+  t.tags = ['meta'];
+  t.body = 'Each thread is one line of thinking. Rate it on importance and urgency (1–7), tag it, and pile on comments and files as it develops.\n\nSearch (press /) covers titles, notes, tags, comments, and file names. The Matrix view lays every thread out on an importance × urgency grid.\n\nData saves automatically in this browser. For a real file on disk, open Data ▾ → "Link a save file" (Chrome/Edge) — the app then writes JSON to that file on every change. Export JSON / Markdown any time. Delete this thread whenever you like.';
+  t.comments = [{ id: uid(), ts: now(), text: 'Comments are timestamped, so a thread doubles as a lab notebook. Ctrl+Enter posts.' }];
+  return t;
+}
+function newThread(title) {
+  return { id: uid(), title: title || 'Untitled thread', body: '', tags: [], status: 'active',
+           importance: 4, urgency: 4, created: now(), updated: now(), comments: [], files: [] };
+}
+function loadState() {
+  const raw = lsGet(LS_KEY);
+  if (raw) { try { const s = JSON.parse(raw); if (s && Array.isArray(s.threads)) { if (!s.tombstones) s.tombstones = {}; return s; } } catch (e) {} }
+  const s = blankState();
+  s.threads.push(welcomeThread());
+  return s;
+}
+
+let saveTimer = null, fileTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const json = JSON.stringify(state);
+    if (!lsSet(LS_KEY, json)) toast('Browser storage full or unavailable — use Data ▾ Export or Link a save file');
+    renderMeter();
+    if (ui.fileHandle && !ui.linkPaused) {
+      clearTimeout(fileTimer);
+      fileTimer = setTimeout(writeLinkedFile, 1200);
+    }
+    scheduleDriveSync(2500);
+  }, 250);
+}
+function touch(t) { t.updated = now(); save(); }
+
+/* ---- linked save file (File System Access API, optional) ---- */
+const FSA = 'showSaveFilePicker' in window;
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('threads-db', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => { const t = d.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+async function idbGet(k) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => { const t = d.transaction('kv', 'readonly'); const g = t.objectStore('kv').get(k); g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error); });
+}
+async function idbDel(k) {
+  const d = await idbOpen();
+  return new Promise((res, rej) => { const t = d.transaction('kv', 'readwrite'); t.objectStore('kv').delete(k); t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+async function writeLinkedFile() {
+  if (!ui.fileHandle) return;
+  try {
+    const w = await ui.fileHandle.createWritable();
+    await w.write(JSON.stringify(state, null, 1));
+    await w.close();
+    renderLinkNote();
+  } catch (e) {
+    ui.linkPaused = true; renderLinkNote();
+    toast('Could not write linked file — link paused (' + e.name + ')');
+  }
+}
+async function linkFile() {
+  if (!FSA) { toast('This browser lacks the File System Access API (Chrome/Edge only). Use Export instead.'); return; }
+  try {
+    const h = await showSaveFilePicker({ suggestedName: 'threads.json', types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] });
+    ui.fileHandle = h; ui.linkPaused = false;
+    await idbSet('fileHandle', h).catch(() => {});
+    await writeLinkedFile();
+    toast('Linked — saving to ' + h.name + ' on every change');
+    renderLinkNote();
+  } catch (e) { /* user cancelled */ }
+}
+async function resumeLink() {
+  if (!FSA || !window.indexedDB) return;
+  let h; try { h = await idbGet('fileHandle'); } catch (e) { return; }
+  if (!h) return;
+  ui.fileHandle = h; ui.linkPaused = true; // paused until permission confirmed
+  let perm = 'prompt';
+  try { perm = await h.queryPermission({ mode: 'readwrite' }); } catch (e) {}
+  if (perm === 'granted') { await maybeLoadFromFile(h); ui.linkPaused = false; }
+  renderLinkNote();
+}
+async function reactivateLink() {
+  const h = ui.fileHandle; if (!h) return;
+  try {
+    const perm = await h.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { toast('Permission not granted'); return; }
+    await maybeLoadFromFile(h);
+    ui.linkPaused = false; renderLinkNote(); toast('File link re-enabled: ' + h.name);
+  } catch (e) { toast('Could not re-enable link: ' + e.name); }
+}
+function newestStamp(s) { return s.threads.reduce((m, t) => t.updated > m ? t.updated : m, ''); }
+async function maybeLoadFromFile(h) {
+  try {
+    const f = await h.getFile();
+    const txt = await f.text();
+    if (!txt.trim()) return;
+    const fs = JSON.parse(txt);
+    if (!fs || !Array.isArray(fs.threads)) return;
+    if (!fs.tombstones) fs.tombstones = {};
+    const fileNewer = newestStamp(fs) > newestStamp(state);
+    if (fileNewer && JSON.stringify(fs) !== JSON.stringify(state)) {
+      const pick = await modal('Linked file has newer data',
+        'The linked file (' + h.name + ') contains more recent changes than this browser. Load the file, or keep what’s here and overwrite it?',
+        [['Load file', 'load', 'primary'], ['Keep current', 'keep', '']]);
+      if (pick === 'load') { state = fs; ui.sel = null; save(); renderAll(); toast('Loaded from ' + h.name); }
+    }
+  } catch (e) { /* unreadable — ignore, writes will still go through */ }
+}
+async function unlinkFile() {
+  ui.fileHandle = null; ui.linkPaused = false;
+  await idbDel('fileHandle').catch(() => {});
+  renderLinkNote(); toast('Unlinked — browser storage only');
+}
+function renderLinkNote() {
+  const note = document.getElementById('linknote');
+  const unlink = document.getElementById('m-unlink');
+  const sub = document.getElementById('brand-sub');
+  if (ui.fileHandle) {
+    unlink.style.display = 'block';
+    if (ui.linkPaused) {
+      note.innerHTML = 'Linked to <b>' + esc(ui.fileHandle.name) + '</b> — <a href="#" id="relink">click to re-enable</a> (browser needs a fresh OK).';
+      const a = document.getElementById('relink');
+      if (a) a.onclick = (e) => { e.preventDefault(); reactivateLink(); };
+      sub.textContent = ' · file link paused';
+    } else {
+      note.innerHTML = 'Auto-saving to <b>' + esc(ui.fileHandle.name) + '</b>.';
+      sub.textContent = ' · ' + ui.fileHandle.name;
+    }
+  } else {
+    unlink.style.display = 'none';
+    note.textContent = storageOK
+      ? 'Not linked — data lives in this browser only. Link a JSON file to auto-save to disk.'
+      : 'Browser storage unavailable here — link a file or export, or changes vanish on reload.';
+    sub.textContent = storageOK ? '' : ' · storage unavailable!';
+  }
+}
+
+/* ---- Google Drive sync (via Apps Script bridge — see DRIVE-SYNC-SETUP.md) ---- */
+const SYNC_KEY = 'threads-drive-sync';
+let syncCfg = null; try { syncCfg = JSON.parse(lsGet(SYNC_KEY) || 'null'); } catch (e) {}
+/* device link: opening threads.html#sync=<bridge-url>|<token> configures this browser automatically */
+try {
+  const hm = location.hash.match(/[#&]sync=([^&]+)/);
+  if (hm) {
+    const [hu, ht] = decodeURIComponent(hm[1]).split('|');
+    if (/^https:\/\/script\.google(usercontent)?\.com\//.test(hu) && ht) {
+      syncCfg = { url: hu, token: ht };
+      lsSet(SYNC_KEY, JSON.stringify(syncCfg));
+    }
+  }
+} catch (e) {}
+function deviceLink() {
+  return location.origin + location.pathname + '#sync=' + encodeURIComponent(syncCfg.url + '|' + syncCfg.token);
+}
+const syncSt = { busy: false, err: null, last: null };
+let syncTimer = null, syncAgain = false;
+
+function mergeStates(local, inc) {
+  /* per-thread newest-updated wins; tombstones stop deleted threads resurrecting */
+  const out = { version: 1, threads: [], tombstones: {} };
+  const tomb = out.tombstones;
+  for (const src of [local.tombstones || {}, inc.tombstones || {}])
+    for (const [id, ts] of Object.entries(src)) if (!tomb[id] || ts > tomb[id]) tomb[id] = ts;
+  const byId = new Map();
+  for (const t of [...(local.threads || []), ...(inc.threads || [])]) {
+    const cur = byId.get(t.id);
+    if (!cur || t.updated > cur.updated) byId.set(t.id, t);
+  }
+  for (const [id, t] of byId) {
+    if (tomb[id] && tomb[id] >= t.updated) continue;      // deleted after last edit → stays gone
+    if (tomb[id]) delete tomb[id];                        // edited after deletion → resurrect
+    out.threads.push(t);
+  }
+  const cutoff = new Date(Date.now() - 90 * 86400e3).toISOString();
+  for (const id of Object.keys(tomb)) if (tomb[id] < cutoff) delete tomb[id];
+  return out;
+}
+async function driveFetch() {
+  const r = await fetch(syncCfg.url + (syncCfg.url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(syncCfg.token), { redirect: 'follow' });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'bridge error');
+  return (j.data && Array.isArray(j.data.threads)) ? j.data : blankState();
+}
+async function drivePost(data) {
+  /* Content-Type text/plain avoids a CORS preflight, which Apps Script can't answer */
+  const r = await fetch(syncCfg.url, {
+    method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ token: syncCfg.token, data }),
+  });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'bridge error');
+}
+function scheduleDriveSync(ms) {
+  if (!syncCfg || typeof fetch !== 'function') return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(driveSync, ms == null ? 2500 : ms);
+}
+async function driveSync() {
+  if (!syncCfg || typeof fetch !== 'function') return;
+  if (syncSt.busy) { syncAgain = true; return; }
+  syncSt.busy = true; syncSt.err = null; renderSyncUI();
+  try {
+    const remote = await driveFetch();
+    const merged = mergeStates(state, remote);           // local first → stable ordering
+    const mergedJson = JSON.stringify(merged);
+    if (mergedJson !== JSON.stringify(state)) {
+      state = merged;
+      lsSet(LS_KEY, mergedJson);
+      if (getThread(ui.sel) == null) ui.sel = null;
+      renderAll();
+      if (ui.fileHandle && !ui.linkPaused) writeLinkedFile();
+    }
+    if (mergedJson !== JSON.stringify(remote)) await drivePost(merged);
+    syncSt.last = now();
+  } catch (e) {
+    syncSt.err = (e && e.message) || 'network error';
+  }
+  syncSt.busy = false; renderSyncUI();
+  if (syncAgain) { syncAgain = false; scheduleDriveSync(500); }
+}
+function renderSyncUI() {
+  const dot = document.getElementById('syncdot');
+  const note = document.getElementById('drivenote');
+  const nowBtn = document.getElementById('m-syncnow');
+  const btn = document.getElementById('m-drive');
+  if (!syncCfg) {
+    dot.style.display = 'none'; nowBtn.style.display = 'none';
+    btn.textContent = 'Connect Drive sync…';
+    note.textContent = 'Off — deploy the Apps Script bridge (DRIVE-SYNC-SETUP.md) to keep data in Google Drive.';
+    return;
+  }
+  dot.style.display = ''; nowBtn.style.display = 'block';
+  btn.textContent = 'Drive sync settings…';
+  dot.className = syncSt.busy ? 'busy' : (syncSt.err ? 'err' : 'ok');
+  const status = syncSt.busy ? 'syncing…' : syncSt.err ? ('error — ' + syncSt.err) : ('synced ' + (syncSt.last ? rel(syncSt.last) : 'never'));
+  dot.title = 'Drive sync: ' + status;
+  note.textContent = 'Drive sync: ' + status;
+}
+async function driveDialog() {
+  if (!syncCfg) { driveConnectForm(); return; }
+  const pick = await modal('Drive sync',
+    'Bridge: ' + syncCfg.url + '\n\nLast sync: ' + (syncSt.last ? abs(syncSt.last) : 'never') + (syncSt.err ? '\nError: ' + syncSt.err : ''),
+    [['Sync now', 'sync', 'primary'], ['Copy device link', 'link', ''], ['Disconnect', 'off', 'danger'], ['Close', null, '']]);
+  if (pick === 'sync') scheduleDriveSync(0);
+  if (pick === 'link') {
+    navigator.clipboard.writeText(deviceLink()).then(
+      () => toast('Copied — open that link on any device to connect it'),
+      () => modal('Device link', deviceLink(), [['Close', null, 'primary']]));
+  }
+  if (pick === 'off') { syncCfg = null; lsSet(SYNC_KEY, ''); renderSyncUI(); toast('Drive sync off (data stays local)'); }
+}
+function driveConnectForm() {
+  const ov = document.getElementById('overlay'), m = document.getElementById('modal');
+  m.innerHTML = '<h3>Connect Drive sync</h3>'
+    + '<p>One-time setup: deploy the Apps Script bridge (instructions in DRIVE-SYNC-SETUP.md next to this file), then paste its web-app URL and your secret token.</p>'
+    + '<label>Web app URL</label><input id="sy-url" placeholder="https://script.google.com/macros/s/…/exec">'
+    + '<label>Secret token</label><input id="sy-tok" placeholder="same TOKEN as in the script">'
+    + '<div class="btns"><button class="btn" id="sy-cancel">Cancel</button><button class="btn primary" id="sy-go">Connect</button></div>';
+  ov.classList.add('open');
+  const close = () => ov.classList.remove('open');
+  document.getElementById('sy-cancel').onclick = close;
+  ov.onclick = e => { if (e.target === ov) close(); };
+  document.getElementById('sy-go').onclick = async () => {
+    const url = document.getElementById('sy-url').value.trim();
+    const token = document.getElementById('sy-tok').value.trim();
+    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { toast('That doesn’t look like an Apps Script /exec URL'); return; }
+    if (!token) { toast('Secret token required'); return; }
+    close();
+    syncCfg = { url, token };
+    toast('Testing bridge…');
+    await driveSync();
+    if (syncSt.err) { toast('Could not sync: ' + syncSt.err); syncCfg = null; lsSet(SYNC_KEY, ''); }
+    else { lsSet(SYNC_KEY, JSON.stringify(syncCfg)); toast('Drive sync connected'); }
+    renderSyncUI();
+  };
+}
+
+/* =============== helpers =============== */
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function linkify(escaped) {
+  return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+}
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(2) + ' MB';
+}
+function rel(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  if (s < 86400 * 14) return Math.floor(s / 86400) + 'd ago';
+  return new Date(iso).toLocaleDateString();
+}
+function abs(iso) { return new Date(iso).toLocaleString(); }
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 3200);
+}
+function modal(title, text, buttons) {
+  return new Promise(res => {
+    const ov = document.getElementById('overlay'), m = document.getElementById('modal');
+    m.innerHTML = '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p><div class="btns"></div>';
+    const btns = m.querySelector('.btns');
+    buttons.forEach(([label, val, cls]) => {
+      const b = document.createElement('button');
+      b.className = 'btn ' + cls; b.textContent = label;
+      b.onclick = () => { ov.classList.remove('open'); res(val); };
+      btns.appendChild(b);
+    });
+    ov.classList.add('open');
+    ov.onclick = e => { if (e.target === ov) { ov.classList.remove('open'); res(null); } };
+  });
+}
+const confirmModal = (title, text, yesLabel) =>
+  modal(title, text, [[yesLabel || 'Delete', true, 'danger'], ['Cancel', false, '']]).then(v => v === true);
+
+function download(name, blobParts, type) {
+  const blob = new Blob(blobParts, { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+function stamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
+}
+
+/* =============== search & filtering =============== */
+function threadHay(t) {
+  return [t.title, t.body, t.tags.join(' '), ...t.comments.map(c => c.text), ...t.files.map(f => f.name + ' ' + (f.href || ''))].join('\n').toLowerCase();
+}
+function matches(t, terms) { const hay = threadHay(t); return terms.every(x => hay.includes(x)); }
+function findSnippet(t, terms) {
+  if (!terms.length) return null;
+  const fields = [
+    ['notes', t.body],
+    ...t.comments.map(c => ['comment', c.text]),
+    ...t.files.map(f => ['file', f.name]),
+    ['tags', t.tags.join(', ')],
+  ];
+  for (const term of terms) {
+    if (t.title.toLowerCase().includes(term)) continue; // title is already visible & highlighted
+    for (const [kind, text] of fields) {
+      const i = text.toLowerCase().indexOf(term);
+      if (i >= 0) {
+        const start = Math.max(0, i - 34), end = Math.min(text.length, i + term.length + 44);
+        let snip = (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ') + (end < text.length ? '…' : '');
+        return { kind, html: hl(esc(snip), terms) };
+      }
+    }
+  }
+  return null;
+}
+function hl(escaped, terms) {
+  let out = escaped;
+  for (const term of terms) {
+    if (!term) continue;
+    const re = new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    out = out.replace(re, '<mark>$1</mark>');
+  }
+  return out;
+}
+function visibleThreads() {
+  const terms = ui.q.toLowerCase().split(/\s+/).filter(Boolean);
+  let ts = state.threads.filter(t => ui.statusF.has(t.status));
+  if (ui.tagF.size) ts = ts.filter(t => t.tags.some(g => ui.tagF.has(g)));
+  if (terms.length) ts = ts.filter(t => matches(t, terms));
+  const cmp = {
+    priority:   (a, b) => (b.importance + b.urgency) - (a.importance + a.urgency) || b.urgency - a.urgency || (b.updated > a.updated ? 1 : -1),
+    importance: (a, b) => b.importance - a.importance || b.urgency - a.urgency,
+    urgency:    (a, b) => b.urgency - a.urgency || b.importance - a.importance,
+    updated:    (a, b) => (b.updated > a.updated ? 1 : -1),
+    created:    (a, b) => (b.created > a.created ? 1 : -1),
+    title:      (a, b) => a.title.localeCompare(b.title),
+  }[ui.sort] || ((a, b) => 0);
+  return ts.slice().sort(cmp);
+}
+const getThread = id => state.threads.find(t => t.id === id);
+
+/* =============== rendering =============== */
+function rateHTML(cls, letter, v) {
+  let cells = '';
+  for (let i = 1; i <= 7; i++) cells += '<i class="' + (i <= v ? 'f' : '') + '"></i>';
+  return '<span class="rate ' + cls + '" title="' + (cls === 'imp' ? 'Importance' : 'Urgency') + ' ' + v + '/7"><b>' + letter + v + '</b><span class="cells">' + cells + '</span></span>';
+}
+function statusHTML(st) {
+  const s = STATUSES[st] || STATUSES.active;
+  return '<span class="stat"><span class="dot" style="background:' + s.color + '"></span>' + s.label + '</span>';
+}
+
+function renderRail() {
+  const rail = document.getElementById('rail');
+  const counts = {}; Object.keys(STATUSES).forEach(k => counts[k] = 0);
+  const tagCounts = {};
+  for (const t of state.threads) {
+    counts[t.status] = (counts[t.status] || 0) + 1;
+    for (const g of t.tags) tagCounts[g] = (tagCounts[g] || 0) + 1;
+  }
+  let h = '<h4>Status</h4>';
+  for (const [k, s] of Object.entries(STATUSES)) {
+    h += '<button class="frow ' + (ui.statusF.has(k) ? 'on' : '') + '" data-status="' + k + '">'
+       + '<span class="dot" style="background:' + s.color + '"></span>' + s.label
+       + '<span class="n">' + (counts[k] || 0) + '</span></button>';
+  }
+  h += '<h4>Sort by</h4><select id="sortsel">';
+  for (const [v, l] of [['priority', 'Priority (I+U)'], ['importance', 'Importance'], ['urgency', 'Urgency'], ['updated', 'Recently updated'], ['created', 'Recently created'], ['title', 'Title A–Z']]) {
+    h += '<option value="' + v + '"' + (ui.sort === v ? ' selected' : '') + '>' + l + '</option>';
+  }
+  h += '</select>';
+  const tags = Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a] || a.localeCompare(b));
+  if (tags.length) {
+    h += '<h4>Tags</h4>';
+    for (const g of tags) {
+      h += '<button class="frow ' + (ui.tagF.has(g) ? 'on' : '') + '" data-tag="' + esc(g) + '">#' + esc(g) + '<span class="n">' + tagCounts[g] + '</span></button>';
+    }
+    if (ui.tagF.size) h += '<button class="frow" data-cleartags="1" style="color:var(--muted)">clear tag filter</button>';
+  }
+  h += '<div class="meter" id="meter"></div>';
+  h += '<div style="margin-top:14px;font-size:11px;color:var(--muted)"><span class="kbd">/</span> search &nbsp;<span class="kbd">n</span> new &nbsp;<span class="kbd">esc</span> close</div>';
+  rail.innerHTML = h;
+  rail.querySelectorAll('[data-status]').forEach(b => b.onclick = () => {
+    const k = b.dataset.status;
+    if (ui.statusF.has(k) && ui.statusF.size === 1) { Object.keys(STATUSES).forEach(x => ui.statusF.add(x)); }
+    else if (ui.statusF.has(k)) ui.statusF.delete(k); else ui.statusF.add(k);
+    renderAll();
+  });
+  rail.querySelectorAll('[data-tag]').forEach(b => b.onclick = () => {
+    const g = b.dataset.tag;
+    if (ui.tagF.has(g)) ui.tagF.delete(g); else ui.tagF.add(g);
+    renderAll();
+  });
+  const ct = rail.querySelector('[data-cleartags]'); if (ct) ct.onclick = () => { ui.tagF.clear(); renderAll(); };
+  document.getElementById('sortsel').onchange = e => { ui.sort = e.target.value; lsSet('threads-sort', ui.sort); renderList(); renderMatrix(); };
+  renderMeter();
+}
+function renderMeter() {
+  const el = document.getElementById('meter'); if (!el) return;
+  const bytes = new Blob([JSON.stringify(state)]).size;
+  const cap = 5 * 1048576;
+  const pct = Math.min(100, Math.round(100 * bytes / cap));
+  el.innerHTML = fmtBytes(bytes) + ' of ~5 MB browser storage'
+    + '<div class="bar"><i style="width:' + pct + '%;' + (pct > 80 ? 'background:var(--danger)' : '') + '"></i></div>'
+    + (pct > 80 ? '<div style="color:var(--danger);margin-top:3px">Nearly full — export or trim big files.</div>' : '');
+}
+
+function renderList() {
+  const terms = ui.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const ts = visibleThreads();
+  const total = state.threads.length;
+  const head = document.getElementById('listhead');
+  head.textContent = ts.length + ' of ' + total + ' thread' + (total === 1 ? '' : 's')
+    + (ts.length < total ? ' (rest hidden by search/filters)' : '');
+  const cards = document.getElementById('cards');
+  if (!ts.length) {
+    cards.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px 16px">' + (total ? 'Nothing matches.' : 'No threads yet — hit <b>+ New</b>.') + '</div>';
+    return;
+  }
+  let h = '';
+  for (const t of ts) {
+    const snip = terms.length ? findSnippet(t, terms) : null;
+    h += '<button class="card ' + (t.id === ui.sel ? 'sel' : '') + '" data-id="' + t.id + '">'
+      + '<div class="t">' + (terms.length ? hl(esc(t.title), terms) : esc(t.title)) + '</div>'
+      + '<div class="meta">' + statusHTML(t.status) + rateHTML('imp', 'I', t.importance) + rateHTML('urg', 'U', t.urgency)
+      + '<span title="' + abs(t.updated) + '">' + rel(t.updated) + '</span>'
+      + (t.comments.length ? '<span>💬 ' + t.comments.length + '</span>' : '')
+      + (t.files.length ? '<span>📎 ' + t.files.length + '</span>' : '')
+      + '</div>'
+      + (t.tags.length ? '<div class="tags">' + t.tags.map(g => '<span class="tagchip">#' + esc(g) + '</span>').join('') + '</div>' : '')
+      + (snip ? '<div class="snippet"><span style="color:var(--muted)">' + snip.kind + ':</span> ' + snip.html + '</div>' : '')
+      + '</button>';
+  }
+  cards.innerHTML = h;
+  cards.querySelectorAll('.card').forEach(c => c.onclick = () => selectThread(c.dataset.id));
+}
+
+function selectThread(id) {
+  ui.sel = id;
+  document.body.classList.add('detail-open');
+  renderList(); renderDetail(); renderMatrix();
+}
+
+function renderDetail() {
+  const box = document.getElementById('detail');
+  const t = getThread(ui.sel);
+  if (!t) {
+    box.innerHTML = '<div class="empty">Select a thread — or press <span class="kbd">n</span> to start one.</div>';
+    return;
+  }
+  let h = '<button class="btn" id="d-back">← Back</button>';
+  h += '<input id="d-title" value="' + esc(t.title) + '" placeholder="Thread title">';
+  h += '<div class="controls">';
+  h += '<div class="ctl"><label>Importance</label><div class="scale imp" id="sc-imp">' + scaleBtns(t.importance) + '</div></div>';
+  h += '<div class="ctl"><label>Urgency</label><div class="scale urg" id="sc-urg">' + scaleBtns(t.urgency) + '</div></div>';
+  h += '<div class="ctl"><label>Status</label><select id="d-status">'
+     + Object.entries(STATUSES).map(([k, s]) => '<option value="' + k + '"' + (t.status === k ? ' selected' : '') + '>' + s.label + '</option>').join('')
+     + '</select></div>';
+  h += '<div class="ctl"><label>Tags</label><div class="tagedit" id="tagedit">'
+     + t.tags.map(g => '<span class="tagchip">#' + esc(g) + '<button data-rmtag="' + esc(g) + '" title="remove">×</button></span>').join('')
+     + '<input id="tag-in" placeholder="+ tag, Enter"></div></div>';
+  h += '</div>';
+  h += '<div class="sect"><h3>Notes</h3><textarea id="d-body" placeholder="Running notes for this thread…">' + esc(t.body) + '</textarea></div>';
+
+  h += '<div class="sect"><h3>Comments <span class="count">' + t.comments.length + '</span></h3><div id="comments">';
+  for (const c of t.comments) {
+    h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span><span class="spacer"></span>'
+       + '<button data-delc="' + c.id + '">delete</button></div>'
+       + '<div class="body">' + linkify(esc(c.text)) + '</div></div>';
+  }
+  h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter)"></textarea><button class="btn primary" id="c-add">Post</button></div></div>';
+
+  h += '<div class="sect"><h3>Files <span class="count">' + t.files.length + '</span></h3>';
+  h += '<div class="filezone" id="filezone">Drop files here, <button id="f-pick">browse</button>, or <button id="f-link">add a path / URL</button></div>';
+  h += '<div id="files">';
+  for (const f of t.files) {
+    const isLink = f.kind === 'link';
+    h += '<div class="filerow"><div class="icon">' + (isLink ? '🔗' : '📎') + '</div><div class="grow">'
+       + '<div class="fname">' + esc(f.name) + '</div>'
+       + '<div class="fmeta">' + (isLink ? esc(f.href) : fmtBytes(f.size) + (f.type ? ' · ' + esc(f.type) : '')) + ' · ' + rel(f.ts) + '</div></div>'
+       + '<div class="acts">'
+       + (isLink
+          ? (/^https?:\/\//.test(f.href) ? '<a href="' + esc(f.href) + '" target="_blank" rel="noopener">open</a>' : '<button data-copy="' + f.id + '">copy path</button>')
+          : '<button data-dl="' + f.id + '">download</button>')
+       + '<button class="rm" data-rmf="' + f.id + '">remove</button></div></div>';
+  }
+  h += '</div></div>';
+
+  h += '<div class="dates"><span>Created ' + abs(t.created) + '</span><span>Updated ' + abs(t.updated) + '</span></div>';
+  h += '<div class="dangerrow"><button class="btn danger" id="d-delete">Delete thread</button></div>';
+  box.innerHTML = h;
+  wireDetail(t);
+}
+function scaleBtns(v) {
+  let h = '';
+  for (let i = 1; i <= 7; i++) h += '<button data-v="' + i + '" class="' + (i === v ? 'on' : '') + '">' + i + '</button>';
+  return h;
+}
+function wireDetail(t) {
+  document.getElementById('d-back').onclick = () => { document.body.classList.remove('detail-open'); };
+  const title = document.getElementById('d-title');
+  title.oninput = () => { t.title = title.value; touch(t); renderList(); };
+  document.getElementById('sc-imp').querySelectorAll('button').forEach(b => b.onclick = () => {
+    t.importance = +b.dataset.v; touch(t);
+    document.getElementById('sc-imp').innerHTML = scaleBtns(t.importance); wireDetail(t); renderList(); renderMatrix();
+  });
+  document.getElementById('sc-urg').querySelectorAll('button').forEach(b => b.onclick = () => {
+    t.urgency = +b.dataset.v; touch(t);
+    document.getElementById('sc-urg').innerHTML = scaleBtns(t.urgency); wireDetail(t); renderList(); renderMatrix();
+  });
+  document.getElementById('d-status').onchange = e => { t.status = e.target.value; touch(t); renderAll(); };
+  const tagIn = document.getElementById('tag-in');
+  tagIn.onkeydown = e => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const g = tagIn.value.trim().replace(/^#/, '').replace(/,+$/, '');
+      if (g && !t.tags.includes(g)) { t.tags.push(g); touch(t); renderDetail(); renderRail(); renderList(); document.getElementById('tag-in').focus(); }
+      else tagIn.value = '';
+    }
+    if (e.key === 'Backspace' && !tagIn.value && t.tags.length) { t.tags.pop(); touch(t); renderDetail(); renderRail(); renderList(); document.getElementById('tag-in').focus(); }
+  };
+  document.querySelectorAll('[data-rmtag]').forEach(b => b.onclick = () => {
+    t.tags = t.tags.filter(g => g !== b.dataset.rmtag); touch(t); renderDetail(); renderRail(); renderList();
+  });
+  const body = document.getElementById('d-body');
+  body.oninput = () => { t.body = body.value; touch(t); };
+  const cIn = document.getElementById('c-in');
+  const post = () => {
+    const text = cIn.value.trim(); if (!text) return;
+    t.comments.push({ id: uid(), ts: now(), text }); touch(t); renderDetail(); renderList();
+    document.getElementById('c-in').focus();
+  };
+  document.getElementById('c-add').onclick = post;
+  cIn.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); post(); } };
+  document.querySelectorAll('[data-delc]').forEach(b => b.onclick = async () => {
+    if (await confirmModal('Delete comment?', 'This removes the comment permanently.')) {
+      t.comments = t.comments.filter(c => c.id !== b.dataset.delc); touch(t); renderDetail(); renderList();
+    }
+  });
+  /* files */
+  const zone = document.getElementById('filezone');
+  document.getElementById('f-pick').onclick = () => document.getElementById('fileinput').click();
+  document.getElementById('f-link').onclick = async () => {
+    const href = window.prompt('Path or URL to attach (e.g. ~/Documents/…/notes.md or https://…):');
+    if (!href) return;
+    const name = href.split('/').filter(Boolean).pop() || href;
+    t.files.push({ id: uid(), kind: 'link', name, href, ts: now() });
+    touch(t); renderDetail(); renderList();
+  };
+  zone.ondragover = e => { e.preventDefault(); zone.classList.add('drag'); };
+  zone.ondragleave = () => zone.classList.remove('drag');
+  zone.ondrop = e => { e.preventDefault(); zone.classList.remove('drag'); addFiles(t, e.dataTransfer.files); };
+  document.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => {
+    const f = t.files.find(x => x.id === b.dataset.dl); if (!f) return;
+    const a = document.createElement('a'); a.href = f.data; a.download = f.name;
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+  document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => {
+    const f = t.files.find(x => x.id === b.dataset.copy); if (!f) return;
+    navigator.clipboard.writeText(f.href).then(() => toast('Path copied'), () => toast('Copy failed — path: ' + f.href));
+  });
+  document.querySelectorAll('[data-rmf]').forEach(b => b.onclick = async () => {
+    const f = t.files.find(x => x.id === b.dataset.rmf); if (!f) return;
+    if (await confirmModal('Remove file?', '"' + f.name + '" will be detached from this thread.', 'Remove')) {
+      t.files = t.files.filter(x => x.id !== b.dataset.rmf); touch(t); renderDetail(); renderList();
+    }
+  });
+  document.getElementById('d-delete').onclick = async () => {
+    if (await confirmModal('Delete thread?', '"' + t.title + '" and its ' + t.comments.length + ' comment(s) and ' + t.files.length + ' file(s) will be gone for good.')) {
+      state.threads = state.threads.filter(x => x.id !== t.id);
+      state.tombstones[t.id] = now();
+      ui.sel = null; save(); document.body.classList.remove('detail-open'); renderAll();
+    }
+  };
+}
+async function addFiles(t, fileList) {
+  for (const f of Array.from(fileList)) {
+    if (f.size > 1.5 * 1048576) {
+      const ok = await modal('Big file', '"' + f.name + '" is ' + fmtBytes(f.size) + '. Files are stored inside the app data (~5 MB browser cap unless a save file is linked). Attach anyway, or attach as a path reference?',
+        [['Attach data', 'data', 'primary'], ['Attach as path', 'path', ''], ['Skip', null, '']]);
+      if (ok === 'path') { t.files.push({ id: uid(), kind: 'link', name: f.name, href: f.name + ' (local file — fill in real path)', ts: now() }); continue; }
+      if (ok !== 'data') continue;
+    }
+    const data = await new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(f);
+    }).catch(() => null);
+    if (data) t.files.push({ id: uid(), name: f.name, type: f.type, size: f.size, ts: now(), data });
+    else toast('Could not read ' + f.name);
+  }
+  touch(t); renderDetail(); renderList(); renderMeter();
+}
+
+/* =============== matrix =============== */
+function renderMatrix() {
+  const col = document.getElementById('matrixcol');
+  if (ui.view !== 'matrix') return;
+  const ts = visibleThreads();
+  const byCell = {};
+  for (const t of ts) (byCell[t.importance + ',' + t.urgency] = byCell[t.importance + ',' + t.urgency] || []).push(t);
+  let h = '<div class="mxlegend">';
+  for (const [k, s] of Object.entries(STATUSES)) h += statusHTML(k);
+  h += '<span style="margin-left:auto;color:var(--muted)">' + ts.length + ' thread' + (ts.length === 1 ? '' : 's') + ' shown</span></div>';
+  h += '<div class="mx">';
+  const hints = { '7,1': 'important, not urgent', '7,7': 'do first', '1,1': 'backlog', '1,7': 'urgent, minor' };
+  for (let imp = 7; imp >= 1; imp--) {
+    h += '<div class="ylab">' + (imp === 4 ? '<span class="axis-name" style="writing-mode:vertical-rl;transform:rotate(180deg)">Importance ↑</span>' : imp) + '</div>';
+    for (let urg = 1; urg <= 7; urg++) {
+      const cell = byCell[imp + ',' + urg] || [];
+      h += '<div class="cell">';
+      for (const t of cell.slice(0, 6)) {
+        h += '<button class="mxchip ' + (t.id === ui.sel ? 'sel' : '') + '" data-id="' + t.id + '" title="' + esc(t.title) + ' — ' + STATUSES[t.status].label + '">'
+           + '<span class="dot" style="background:' + STATUSES[t.status].color + '"></span><span>' + esc(t.title) + '</span></button>';
+      }
+      if (cell.length > 6) h += '<div style="font-size:11px;color:var(--muted);padding:2px 6px">+' + (cell.length - 6) + ' more</div>';
+      if (hints[imp + ',' + urg] && !cell.length) h += '<div class="hint">' + hints[imp + ',' + urg] + '</div>';
+      h += '</div>';
+    }
+  }
+  h += '<div></div>';
+  for (let urg = 1; urg <= 7; urg++) h += '<div class="xlab">' + (urg === 4 ? '<span class="axis-name">Urgency →</span>' : urg) + '</div>';
+  h += '</div>';
+  col.innerHTML = h;
+  col.querySelectorAll('.mxchip').forEach(c => c.onclick = () => selectThread(c.dataset.id));
+}
+
+/* =============== import / export =============== */
+function exportJSON() { download('threads-' + stamp() + '.json', [JSON.stringify(state, null, 1)], 'application/json'); }
+function exportMD() {
+  const ts = visibleThreads();
+  let md = '# Threads — ' + new Date().toLocaleString() + '\n\n';
+  if (ts.length < state.threads.length) md += '_' + ts.length + ' of ' + state.threads.length + ' threads (current search/filters applied)._\n\n';
+  for (const t of ts) {
+    md += '## ' + t.title + '\n\n';
+    md += '- **Importance:** ' + t.importance + '/7 · **Urgency:** ' + t.urgency + '/7 · **Status:** ' + STATUSES[t.status].label + '\n';
+    if (t.tags.length) md += '- **Tags:** ' + t.tags.map(g => '#' + g).join(', ') + '\n';
+    md += '- **Created:** ' + abs(t.created) + ' · **Updated:** ' + abs(t.updated) + '\n\n';
+    if (t.body.trim()) md += t.body.trim() + '\n\n';
+    if (t.comments.length) {
+      md += '### Comments\n\n';
+      for (const c of t.comments) md += '- _' + abs(c.ts) + '_ — ' + c.text.replace(/\n/g, '\n  ') + '\n';
+      md += '\n';
+    }
+    if (t.files.length) {
+      md += '### Files\n\n';
+      for (const f of t.files) md += '- ' + f.name + (f.kind === 'link' ? ' → `' + f.href + '`' : ' (' + fmtBytes(f.size) + ', embedded)') + '\n';
+      md += '\n';
+    }
+  }
+  download('threads-' + stamp() + '.md', [md], 'text/markdown');
+}
+function importJSON() { document.getElementById('importinput').click(); }
+async function handleImport(file) {
+  let inc;
+  try { inc = JSON.parse(await file.text()); } catch (e) { toast('Not valid JSON'); return; }
+  if (!inc || !Array.isArray(inc.threads)) { toast('Not a Threads export (no "threads" array)'); return; }
+  const mode = await modal('Import ' + inc.threads.length + ' thread(s)',
+    'Merge keeps everything here and adds/updates from the file (same thread id → newer wins). Replace throws away current data.',
+    [['Merge', 'merge', 'primary'], ['Replace', 'replace', 'danger'], ['Cancel', null, '']]);
+  if (!mode) return;
+  if (!inc.tombstones) inc.tombstones = {};
+  if (mode === 'replace') state = inc;
+  else state = mergeStates(state, inc);
+  ui.sel = null; save(); renderAll();
+  toast(mode === 'replace' ? 'Replaced with imported data' : 'Merged');
+}
+
+/* =============== global wiring =============== */
+function renderAll() { renderRail(); renderList(); renderDetail(); renderMatrix(); }
+function setView(v) {
+  ui.view = v;
+  document.body.classList.toggle('matrix-mode', v === 'matrix');
+  document.getElementById('listcol').style.display = v === 'matrix' ? 'none' : '';
+  document.getElementById('detailcol').style.display = v === 'matrix' ? 'none' : '';
+  document.getElementById('matrixcol').style.display = v === 'matrix' ? '' : 'none';
+  document.getElementById('app').style.gridTemplateColumns = v === 'matrix' ? '210px 1fr' : '';
+  document.querySelectorAll('#viewseg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  renderMatrix(); if (v === 'list') { renderList(); renderDetail(); }
+}
+document.querySelectorAll('#viewseg button').forEach(b => b.onclick = () => setView(b.dataset.view));
+document.getElementById('btn-new').onclick = () => {
+  const t = newThread('');
+  t.title = 'Untitled thread';
+  state.threads.unshift(t); save();
+  setView('list'); ui.sel = t.id; renderAll();
+  document.body.classList.add('detail-open');
+  const ti = document.getElementById('d-title'); if (ti) { ti.focus(); ti.select(); }
+};
+const searchEl = document.getElementById('search');
+searchEl.oninput = () => { ui.q = searchEl.value; renderList(); renderMatrix(); };
+document.getElementById('btn-filters').onclick = () => document.getElementById('rail').classList.toggle('open');
+
+const dataBtn = document.getElementById('btn-data'), dataMenu = document.getElementById('datamenu');
+dataBtn.onclick = e => { e.stopPropagation(); dataMenu.classList.toggle('open'); };
+document.addEventListener('click', e => { if (!dataMenu.contains(e.target)) dataMenu.classList.remove('open'); });
+document.getElementById('m-export').onclick = exportJSON;
+document.getElementById('m-exportmd').onclick = exportMD;
+document.getElementById('m-import').onclick = importJSON;
+document.getElementById('m-link').onclick = linkFile;
+document.getElementById('m-unlink').onclick = unlinkFile;
+document.getElementById('m-drive').onclick = driveDialog;
+document.getElementById('m-syncnow').onclick = () => { scheduleDriveSync(0); toast('Syncing…'); };
+document.getElementById('importinput').onchange = e => { if (e.target.files[0]) handleImport(e.target.files[0]); e.target.value = ''; };
+document.getElementById('fileinput').onchange = e => {
+  const t = getThread(ui.sel);
+  if (t && e.target.files.length) addFiles(t, e.target.files);
+  e.target.value = '';
+};
+
+/* theme cycle: auto → light → dark */
+function applyTheme(v) {
+  if (v === 'light' || v === 'dark') document.documentElement.dataset.theme = v;
+  else delete document.documentElement.dataset.theme;
+  document.getElementById('m-theme').textContent = 'Theme: ' + (v || 'auto');
+}
+document.getElementById('m-theme').onclick = () => {
+  const cur = lsGet(THEME_KEY) || 'auto';
+  const next = cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto';
+  lsSet(THEME_KEY, next); applyTheme(next);
+};
+applyTheme(lsGet(THEME_KEY) || 'auto');
+
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  if (e.key === '/' && !typing) { e.preventDefault(); searchEl.focus(); searchEl.select(); }
+  if (e.key === 'n' && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); document.getElementById('btn-new').click(); }
+  if (e.key === 'Escape') {
+    if (document.getElementById('overlay').classList.contains('open')) return;
+    if (document.activeElement === searchEl && searchEl.value) { searchEl.value = ''; ui.q = ''; renderList(); renderMatrix(); }
+    else if (typing) document.activeElement.blur();
+    else document.body.classList.remove('detail-open');
+  }
+});
+
+/* boot */
+renderAll();
+renderSyncUI();
+if (state.threads.length && !ui.sel) { ui.sel = null; }
+resumeLink();
+scheduleDriveSync(0);                                   // pull other-device changes on open
+setInterval(() => { if (document.visibilityState === 'visible') scheduleDriveSync(0); }, 90000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scheduleDriveSync(0); });
+save();
+</script>
+</body>
+</html>
