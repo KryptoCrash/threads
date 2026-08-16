@@ -473,7 +473,7 @@ try {
   const hm = location.hash.match(/[#&]sync=([^&]+)/);
   if (hm) {
     const [hu, ht] = decodeURIComponent(hm[1]).split('|');
-    if (/^https:\/\/script\.google(usercontent)?\.com\//.test(hu) && ht) {
+    if (/^(https?:\/\/|\/)/.test(hu) && ht) {
       syncCfg = { url: hu, token: ht };
       lsSet(SYNC_KEY, JSON.stringify(syncCfg));
     }
@@ -583,8 +583,8 @@ async function driveDialog() {
 function driveConnectForm() {
   const ov = document.getElementById('overlay'), m = document.getElementById('modal');
   m.innerHTML = '<h3>Connect Drive sync</h3>'
-    + '<p>One-time setup: deploy the Apps Script bridge (instructions in DRIVE-SYNC-SETUP.md next to this file), then paste its web-app URL and your secret token.</p>'
-    + '<label>Web app URL</label><input id="sy-url" placeholder="https://script.google.com/macros/s/…/exec">'
+    + '<p>Paste your sync endpoint (devbox server or Apps Script bridge — see DRIVE-SYNC-SETUP.md) and secret token. Or open a device link and skip this form.</p>'
+    + '<label>Sync endpoint URL</label><input id="sy-url" placeholder="https://…/api  or  /api">'
     + '<label>Secret token</label><input id="sy-tok" placeholder="same TOKEN as in the script">'
     + '<div class="btns"><button class="btn" id="sy-cancel">Cancel</button><button class="btn primary" id="sy-go">Connect</button></div>';
   ov.classList.add('open');
@@ -594,7 +594,7 @@ function driveConnectForm() {
   document.getElementById('sy-go').onclick = async () => {
     const url = document.getElementById('sy-url').value.trim();
     const token = document.getElementById('sy-tok').value.trim();
-    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { toast('That doesn’t look like an Apps Script /exec URL'); return; }
+    if (!/^(https?:\/\/|\/)/.test(url)) { toast('Enter a sync endpoint URL (https://… or a same-origin path like /api)'); return; }
     if (!token) { toast('Secret token required'); return; }
     close();
     syncCfg = { url, token };
