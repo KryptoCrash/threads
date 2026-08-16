@@ -6,7 +6,13 @@ GET  /api?token=X -> {"ok": true, "data": <threads state>}
 POST /api         -> body {"token": X, "data": <threads state>} ; atomic write
 
 Data lives in threads.json next to this script, so local tools (and Claude)
-can read it directly. Token is read from ~/.config/threads-server/token.
+can read it directly.
+
+Auth model: binds to 127.0.0.1 by default, so the only way in from another
+machine is tailscale serve — being on the tailnet IS the authentication, and
+no token is required. If you rebind to a non-loopback interface
+(THREADS_BIND=0.0.0.0), the token from ~/.config/threads-server/token becomes
+mandatory again.
 """
 import json
 import os
@@ -20,6 +26,8 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(BASE, 'threads.html')
 DATA = os.path.join(BASE, 'threads.json')
 TOKEN = open(os.path.expanduser('~/.config/threads-server/token')).read().strip()
+BIND = os.environ.get('THREADS_BIND', '127.0.0.1')
+REQUIRE_TOKEN = BIND not in ('127.0.0.1', 'localhost', '::1')
 LOCK = threading.Lock()
 EMPTY = {"version": 1, "threads": [], "tombstones": {}}
 
@@ -64,7 +72,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, f.read(), 'text/html; charset=utf-8')
         elif u.path == '/api':
             q = parse_qs(u.query)
-            if q.get('token', [''])[0] != TOKEN:
+            if REQUIRE_TOKEN and q.get('token', [''])[0] != TOKEN:
                 self._send(403, json.dumps({"ok": False, "error": "bad token"}))
                 return
             with LOCK:
@@ -81,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self._send(400, json.dumps({"ok": False, "error": "bad json"}))
             return
-        if body.get('token') != TOKEN:
+        if REQUIRE_TOKEN and body.get('token') != TOKEN:
             self._send(403, json.dumps({"ok": False, "error": "bad token"}))
             return
         data = body.get('data')
@@ -98,4 +106,4 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(os.environ.get('THREADS_PORT', '8787'))
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+    ThreadingHTTPServer((BIND, port), Handler).serve_forever()

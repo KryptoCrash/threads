@@ -473,7 +473,7 @@ try {
   const hm = location.hash.match(/[#&]sync=([^&]+)/);
   if (hm) {
     const [hu, ht] = decodeURIComponent(hm[1]).split('|');
-    if (/^(https?:\/\/|\/)/.test(hu) && ht) {
+    if (/^(https?:\/\/|\/)/.test(hu) && ht != null) {
       syncCfg = { url: hu, token: ht };
       lsSet(SYNC_KEY, JSON.stringify(syncCfg));
     }
@@ -481,6 +481,21 @@ try {
 } catch (e) {}
 function deviceLink() {
   return location.origin + location.pathname + '#sync=' + encodeURIComponent(syncCfg.url + '|' + syncCfg.token);
+}
+/* zero-config: when served behind an authenticated proxy (tailscale serve), the
+   same-origin /api answers without a token — probe once and connect silently */
+async function autoConnect() {
+  if (syncCfg || typeof fetch !== 'function' || !/^https?:$/.test(location.protocol)) return;
+  try {
+    const r = await fetch('/api?token=');
+    const j = await r.json();
+    if (j && j.ok) {
+      syncCfg = { url: '/api', token: '' };
+      lsSet(SYNC_KEY, JSON.stringify(syncCfg));
+      renderSyncUI();
+      scheduleDriveSync(0);
+    }
+  } catch (e) { /* not served from a sync-capable host — stay quiet */ }
 }
 const syncSt = { busy: false, err: null, last: null };
 let syncTimer = null, syncAgain = false;
@@ -1110,6 +1125,7 @@ renderAll();
 renderSyncUI();
 if (state.threads.length && !ui.sel) { ui.sel = null; }
 resumeLink();
+autoConnect();
 scheduleDriveSync(0);                                   // pull other-device changes on open
 setInterval(() => { if (document.visibilityState === 'visible') scheduleDriveSync(0); }, 90000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scheduleDriveSync(0); });
