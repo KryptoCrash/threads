@@ -133,7 +133,8 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 
 /* ---------- detail ---------- */
 .detail { max-width: 860px; padding: 18px 24px 60px; }
-.detail .empty { color: var(--muted); padding: 60px 20px; text-align: center; }
+.detail .empty { color: var(--muted); padding: 60px 20px; max-width: 480px; margin: 0 auto; }
+.detail .empty p { margin: 0 0 12px; }
 #d-title {
   width: 100%; font-size: 20px; font-weight: 700; border: 0; background: transparent;
   outline: none; padding: 4px 0; border-bottom: 1px solid transparent;
@@ -319,14 +320,6 @@ const ui = {
 };
 
 function blankState() { return { version: 1, threads: [], tombstones: {} }; }
-function welcomeThread() {
-  const t = newThread('Welcome — how this app works');
-  t.importance = 3; t.urgency = 2;
-  t.tags = ['meta'];
-  t.body = 'Each thread is one line of thinking. Rate it on importance and urgency (1–7), tag it, and pile on comments and files as it develops.\n\nSearch (press /) covers titles, notes, tags, comments, and file names. The Matrix view lays every thread out on an importance × urgency grid.\n\nData saves automatically in this browser. For a real file on disk, open Data ▾ → "Link a save file" (Chrome/Edge) — the app then writes JSON to that file on every change. Export JSON / Markdown any time. Delete this thread whenever you like.';
-  t.comments = [{ id: uid(), ts: now(), text: 'Comments are timestamped, so a thread doubles as a lab notebook. Ctrl+Enter posts.' }];
-  return t;
-}
 function newThread(title) {
   return { id: uid(), title: title || 'Untitled thread', body: '', tags: [], status: 'active',
            importance: 4, urgency: 4, created: now(), updated: now(), comments: [], files: [] };
@@ -334,9 +327,7 @@ function newThread(title) {
 function loadState() {
   const raw = lsGet(LS_KEY);
   if (raw) { try { const s = JSON.parse(raw); if (s && Array.isArray(s.threads)) { if (!s.tombstones) s.tombstones = {}; return s; } } catch (e) {} }
-  const s = blankState();
-  s.threads.push(welcomeThread());
-  return s;
+  return blankState();
 }
 
 let saveTimer = null, fileTimer = null;
@@ -833,7 +824,10 @@ function renderDetail() {
   const box = document.getElementById('detail');
   const t = getThread(ui.sel);
   if (!t) {
-    box.innerHTML = '<div class="empty">Select a thread — or press <span class="kbd">n</span> to start one.</div>';
+    box.innerHTML = '<div class="empty"><p><b>No thread selected.</b></p>'
+      + '<p>Press <span class="kbd">n</span> to start a thread of thinking. Rate its importance and urgency (1–7), tag it, and pile on comments and files as it develops — comments are timestamped, so a thread doubles as a lab notebook.</p>'
+      + '<p>Press <span class="kbd">/</span> to search titles, notes, tags, comments, and file names. The Matrix view lays every thread on the importance × urgency grid.</p>'
+      + '<p>When the header dot is green, everything syncs automatically across your devices.</p></div>';
     return;
   }
   let h = '<button class="btn" id="d-back">← Back</button>';
