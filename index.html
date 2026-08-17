@@ -820,9 +820,29 @@ function selectThread(id) {
   renderList(); renderDetail(); renderMatrix();
 }
 
+/* manual textarea resizes survive re-renders: capture per-thread heights (device-local) */
+let paneH = {}; try { paneH = JSON.parse(lsGet('threads-pane-heights') || '{}'); } catch (e) {}
+function captureHeights() {
+  if (!ui.detailFor) return;
+  let changed = false;
+  for (const [key, sel] of [['notes', '#d-body'], ['comment', '#c-in']]) {
+    const el = document.querySelector(sel);
+    const h = el && (el.style.height || (el.offsetHeight ? el.offsetHeight + 'px' : ''));
+    if (h && paneH[key + ':' + ui.detailFor] !== h) { paneH[key + ':' + ui.detailFor] = h; changed = true; }
+  }
+  if (changed) lsSet('threads-pane-heights', JSON.stringify(paneH));
+}
+function applyHeights(t) {
+  const bh = paneH['notes:' + t.id], ch = paneH['comment:' + t.id];
+  if (bh) document.getElementById('d-body').style.height = bh;
+  if (ch) document.getElementById('c-in').style.height = ch;
+}
+
 function renderDetail() {
   const box = document.getElementById('detail');
   const t = getThread(ui.sel);
+  captureHeights();
+  ui.detailFor = t ? t.id : null;
   if (!t) {
     box.innerHTML = '<div class="empty"><p><b>No thread selected.</b></p>'
       + '<p>Press <span class="kbd">n</span> to start a thread of thinking. Rate its importance and urgency (1–7), tag it, and pile on comments and files as it develops — comments are timestamped, so a thread doubles as a lab notebook.</p>'
@@ -871,6 +891,7 @@ function renderDetail() {
   h += '<div class="dates"><span>Created ' + abs(t.created) + '</span><span>Updated ' + abs(t.updated) + '</span></div>';
   h += '<div class="dangerrow"><button class="btn danger" id="d-delete">Delete thread</button></div>';
   box.innerHTML = h;
+  applyHeights(t);
   wireDetail(t);
 }
 function scaleBtns(v) {
@@ -951,7 +972,8 @@ function wireDetail(t) {
     if (await confirmModal('Delete thread?', '"' + t.title + '" and its ' + t.comments.length + ' comment(s) and ' + t.files.length + ' file(s) will be gone for good.')) {
       state.threads = state.threads.filter(x => x.id !== t.id);
       state.tombstones[t.id] = now();
-      ui.sel = null; save(); document.body.classList.remove('detail-open'); renderAll();
+      delete paneH['notes:' + t.id]; delete paneH['comment:' + t.id];
+      ui.sel = null; ui.detailFor = null; save(); document.body.classList.remove('detail-open'); renderAll();
     }
   };
 }
