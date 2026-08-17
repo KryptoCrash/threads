@@ -164,7 +164,14 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .comment .head .spacer { flex: 1; }
 .comment .head button { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; }
 .comment .head button:hover { color: var(--danger); }
+.comment .head button[data-editc]:hover { color: var(--accent); }
 .comment .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment .editbox {
+  width: 100%; min-height: 60px; resize: vertical; padding: 8px 11px; margin-top: 2px;
+  background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; outline: none;
+}
+.comment .editbox:focus { border-color: var(--accent); }
+.comment .editbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 .addbox { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
 .addbox textarea {
   flex: 1; min-height: 40px; resize: vertical; padding: 8px 11px;
@@ -815,6 +822,7 @@ function renderList() {
 }
 
 function selectThread(id) {
+  if (ui.sel !== id) ui.editingC = null;
   ui.sel = id;
   document.body.classList.add('detail-open');
   renderList(); renderDetail(); renderMatrix();
@@ -866,9 +874,17 @@ function renderDetail() {
 
   h += '<div class="sect"><h3>Comments <span class="count">' + t.comments.length + '</span></h3><div id="comments">';
   for (const c of t.comments) {
-    h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span><span class="spacer"></span>'
-       + '<button data-delc="' + c.id + '">delete</button></div>'
-       + '<div class="body">' + linkify(esc(c.text)) + '</div></div>';
+    const edited = c.edited ? ' <span title="edited ' + abs(c.edited) + '">(edited)</span>' : '';
+    if (ui.editingC === c.id) {
+      h += '<div class="comment"><div class="head"><span>' + abs(c.ts) + edited + '</span><span class="spacer"></span></div>'
+         + '<textarea class="editbox" id="c-edit">' + esc(c.text) + '</textarea>'
+         + '<div class="editbtns"><button class="btn" id="c-edit-cancel">Cancel</button><button class="btn primary" id="c-edit-save">Save</button></div></div>';
+    } else {
+      h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span>' + edited + '<span class="spacer"></span>'
+         + '<button data-editc="' + c.id + '">edit</button>'
+         + '<button data-delc="' + c.id + '">delete</button></div>'
+         + '<div class="body">' + linkify(esc(c.text)) + '</div></div>';
+    }
   }
   h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter)"></textarea><button class="btn primary" id="c-add">Post</button></div></div>';
 
@@ -935,6 +951,27 @@ function wireDetail(t) {
   };
   document.getElementById('c-add').onclick = post;
   cIn.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); post(); } };
+  document.querySelectorAll('[data-editc]').forEach(b => b.onclick = () => {
+    ui.editingC = b.dataset.editc; renderDetail();
+    const ed = document.getElementById('c-edit');
+    if (ed) { ed.focus(); ed.selectionStart = ed.value.length; }
+  });
+  const editBox = document.getElementById('c-edit');
+  if (editBox) {
+    const c = t.comments.find(x => x.id === ui.editingC);
+    const saveEdit = () => {
+      const text = editBox.value.trim();
+      if (text && c && text !== c.text) { c.text = text; c.edited = now(); touch(t); renderList(); }
+      ui.editingC = null; renderDetail();
+    };
+    const cancelEdit = () => { ui.editingC = null; renderDetail(); };
+    document.getElementById('c-edit-save').onclick = saveEdit;
+    document.getElementById('c-edit-cancel').onclick = cancelEdit;
+    editBox.onkeydown = e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEdit(); }
+      if (e.key === 'Escape') { e.stopPropagation(); cancelEdit(); }
+    };
+  }
   document.querySelectorAll('[data-delc]').forEach(b => b.onclick = async () => {
     if (await confirmModal('Delete comment?', 'This removes the comment permanently.')) {
       t.comments = t.comments.filter(c => c.id !== b.dataset.delc); touch(t); renderDetail(); renderList();
