@@ -679,6 +679,46 @@ function stamp() {
   return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
 }
 
+/* Google-Docs-style list editing in textareas:
+   Enter continues "- " / "* " / "1. " lists (numbers increment);
+   Enter on an empty item outdents, or removes the bullet at top level;
+   Tab / Shift+Tab indent / outdent the current list item. */
+function listEditor(el, onChange) {
+  el.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== 'Tab') return;
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) return;   // submit shortcuts pass through
+    const v = el.value, s = el.selectionStart, se = el.selectionEnd;
+    const lineStart = v.lastIndexOf('\n', s - 1) + 1;
+    const m = v.slice(lineStart, s).match(/^(\s*)([-*+•]|\d+[.)])(\s+)(.*)$/);
+    if (!m) return;                                              // not a list line: default behavior
+    e.preventDefault();
+    const setVal = (val, pos) => {
+      el.value = val;
+      el.selectionStart = el.selectionEnd = pos;
+      if (onChange) onChange();
+    };
+    if (e.key === 'Tab') {
+      if (e.shiftKey) {
+        const rm = Math.min(2, m[1].length);
+        if (rm) setVal(v.slice(0, lineStart) + v.slice(lineStart + rm), Math.max(lineStart, s - rm));
+      } else {
+        setVal(v.slice(0, lineStart) + '  ' + v.slice(lineStart), s + 2);
+      }
+      return;
+    }
+    if (!m[4].trim()) {                                          // Enter on an empty item
+      if (m[1].length >= 2) setVal(v.slice(0, lineStart) + v.slice(lineStart + 2), s - 2);  // outdent
+      else setVal(v.slice(0, lineStart) + v.slice(s), lineStart);                            // drop bullet
+      return;
+    }
+    let marker = m[2];
+    const num = marker.match(/^(\d+)([.)])$/);
+    if (num) marker = (parseInt(num[1], 10) + 1) + num[2];
+    const ins = '\n' + m[1] + marker + m[3];
+    setVal(v.slice(0, s) + ins + v.slice(se), s + ins.length);
+  });
+}
+
 /* =============== search & filtering =============== */
 function threadHay(t) {
   return [t.title, t.body, t.tags.join(' '), ...t.comments.map(c => c.text), ...t.files.map(f => f.name + ' ' + (f.href || ''))].join('\n').toLowerCase();
@@ -949,7 +989,9 @@ function wireDetail(t) {
   });
   const body = document.getElementById('d-body');
   body.oninput = () => { t.body = body.value; touch(t); };
+  listEditor(body, () => { t.body = body.value; touch(t); });
   const cIn = document.getElementById('c-in');
+  listEditor(cIn);
   const post = () => {
     const text = cIn.value.trim(); if (!text) return;
     t.comments.push({ id: uid(), ts: now(), text }); touch(t); renderDetail(); renderList();
@@ -977,6 +1019,7 @@ function wireDetail(t) {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEdit(); }
       if (e.key === 'Escape') { e.stopPropagation(); cancelEdit(); }
     };
+    listEditor(editBox);
   }
   document.querySelectorAll('[data-delc]').forEach(b => b.onclick = async () => {
     if (await confirmModal('Delete comment?', 'This removes the comment permanently.')) {
