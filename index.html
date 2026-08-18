@@ -85,6 +85,7 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 
 /* ---------- layout ---------- */
 .app { flex: 1; display: grid; grid-template-columns: 210px 340px 1fr; min-height: 0; }
+body.matrix-mode .app { grid-template-columns: 210px 1fr; }
 .rail, .listcol { border-right: 1px solid var(--hairline); background: var(--surface); overflow-y: auto; min-height: 0; }
 .rail { padding: 12px; }
 .listcol { display: flex; flex-direction: column; }
@@ -220,14 +221,26 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .dangerrow { margin-top: 10px; }
 
 /* ---------- matrix ---------- */
-.matrixcol { overflow: auto; padding: 18px; background: var(--page); }
-.mx { display: grid; grid-template-columns: 30px repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(7, minmax(72px, auto)) 30px; gap: 0; }
-.mx .cell { border: 0.5px solid var(--hairline); background: var(--surface); padding: 4px; position: relative; min-height: 72px; min-width: 0; }
-.mx.compact { grid-template-rows: repeat(7, minmax(44px, auto)) 24px; }
-.mx.compact .cell { min-height: 44px; padding: 3px; }
+.matrixcol { overflow: auto; padding: 14px 18px 10px; background: var(--page); display: flex; flex-direction: column; }
+.mxlegend { flex: none; }
+.mx {
+  position: relative; flex: 1; display: grid;
+  grid-template-columns: 44px repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(7, minmax(64px, 1fr)) 26px 18px; gap: 0;
+}
+.mx .cell { border: 0.5px solid var(--hairline); background: var(--surface); padding: 4px; position: relative; min-height: 64px; min-width: 0; }
+.mx .ytitle {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%) rotate(180deg);
+  writing-mode: vertical-rl; color: var(--ink-2); font-weight: 600; font-size: 12px; pointer-events: none;
+}
+.mx .xtitle { grid-column: 2 / -1; display: flex; align-items: flex-end; justify-content: center; color: var(--ink-2); font-weight: 600; font-size: 12px; }
+.mx .ylab { justify-content: flex-end !important; padding-right: 9px; }
+.mx.compact { grid-template-rows: repeat(7, minmax(44px, 1fr)) 22px 16px; }
+.mx.compact .cell { min-height: 44px; padding: 3px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 2px; }
 .mx.compact .cell .hint { display: none; }
-.mx.compact .mxchip { display: inline-flex; width: auto; padding: 5px; margin: 1px; border-radius: 50%; }
-.mx.compact .mxchip span { display: none; }
+.mx.compact .mxchip { display: inline-flex; width: auto; padding: 3px; margin: 0; border-radius: 50%; }
+.mx.compact .mxchip .dot { width: 12px; height: 12px; box-shadow: none; }
+.mx.compact .mxchip span:not(.dot) { display: none; }
 .mx .cell .hint { position: absolute; inset: auto 6px 4px auto; font-size: 10px; color: var(--muted); opacity: 0.8; pointer-events: none; }
 .mx .ylab, .mx .xlab { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .mx .axis-name { color: var(--ink-2); font-weight: 600; }
@@ -239,7 +252,6 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .mxchip:hover { border-color: var(--accent); }
 .mxchip.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .mxchip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px var(--surface); }
-.mxchip { max-width: 240px; }
 .mxchip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mxlegend { display: flex; gap: 16px; margin: 0 0 12px; color: var(--ink-2); font-size: 12px; flex-wrap: wrap; }
 .mxlegend .stat .dot { box-shadow: 0 0 0 2px var(--surface); }
@@ -275,10 +287,11 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
   .app { grid-template-columns: 1fr; }
   .rail { display: none; border-right: 0; border-bottom: 1px solid var(--hairline); max-height: 45vh; }
   .rail.open { display: block; }
+  body.matrix-mode .app { grid-template-columns: 1fr; }
   .listcol { border-right: 0; }
   .detailcol, .matrixcol { display: none; }
   body.detail-open .detailcol { display: block; position: fixed; inset: 0; top: 49px; z-index: 50; background: var(--page); overflow-y: auto; }
-  body.matrix-mode .matrixcol { display: block; }
+  body.matrix-mode .matrixcol { display: flex; }
   body.matrix-mode .listcol { display: none; }
   #btn-filters { display: inline-block !important; }
   #d-back { display: inline-block !important; }
@@ -1305,9 +1318,10 @@ function renderMatrix() {
   for (const [k, s] of Object.entries(STATUSES)) h += statusHTML(k);
   h += '<span style="margin-left:auto;color:var(--muted)">' + ts.length + ' thread' + (ts.length === 1 ? '' : 's') + ' shown</span></div>';
   h += '<div class="mx' + (compact ? ' compact' : '') + '">';
+  h += '<div class="ytitle">Importance ↑</div>';
   const hints = { '7,1': 'important, not urgent', '7,7': 'do first', '1,1': 'backlog', '1,7': 'urgent, minor' };
   for (let imp = 7; imp >= 1; imp--) {
-    h += '<div class="ylab">' + (imp === 4 ? '<span class="axis-name" style="writing-mode:vertical-rl;transform:rotate(180deg)">Importance ↑</span>' : imp) + '</div>';
+    h += '<div class="ylab">' + imp + '</div>';
     for (let urg = 1; urg <= 7; urg++) {
       const cell = byCell[imp + ',' + urg] || [];
       h += '<div class="cell">';
@@ -1321,7 +1335,8 @@ function renderMatrix() {
     }
   }
   h += '<div></div>';
-  for (let urg = 1; urg <= 7; urg++) h += '<div class="xlab">' + (urg === 4 ? '<span class="axis-name">Urgency →</span>' : urg) + '</div>';
+  for (let urg = 1; urg <= 7; urg++) h += '<div class="xlab">' + urg + '</div>';
+  h += '<div></div><div class="xtitle">Urgency →</div>';
   h += '</div>';
   col.innerHTML = h;
   col.querySelectorAll('.mxchip').forEach(c => c.onclick = () => selectThread(c.dataset.id));
@@ -1376,7 +1391,6 @@ function setView(v) {
   document.getElementById('listcol').style.display = v === 'matrix' ? 'none' : '';
   document.getElementById('detailcol').style.display = v === 'matrix' ? 'none' : '';
   document.getElementById('matrixcol').style.display = v === 'matrix' ? '' : 'none';
-  document.getElementById('app').style.gridTemplateColumns = v === 'matrix' ? '210px 1fr' : '';
   document.querySelectorAll('#viewseg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   renderMatrix(); if (v === 'list') { renderList(); renderDetail(); }
 }
