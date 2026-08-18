@@ -155,10 +155,13 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .sect > h3 .count { font-weight: 400; }
 #d-body {
-  width: 100%; min-height: 120px; resize: none; overflow: hidden; padding: 10px 12px;
+  min-height: 120px; padding: 12px 14px;
   background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; outline: none;
 }
 #d-body:focus { border-color: var(--accent); }
+#d-body:empty::before { content: 'Add notes — type "- " to start a list…'; color: var(--muted); }
+#d-body li:has(> input[type=checkbox]:first-child) { list-style: none; margin-left: -20px; }
+#d-body input[type=checkbox] { cursor: pointer; }
 .comment { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; }
 .comment .head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
 .comment .head .spacer { flex: 1; }
@@ -187,18 +190,6 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .md blockquote { border-left: 3px solid var(--baseline); margin: 0 0 10px; padding: 2px 12px; color: var(--ink-2); }
 .md blockquote p { margin: 4px 0; }
 .md hr { border: 0; border-top: 1px solid var(--hairline); margin: 12px 0; }
-#d-body-view {
-  background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px;
-  padding: 12px 14px; min-height: 48px; cursor: text;
-}
-#d-body-view:hover { border-color: var(--baseline); }
-#d-body-view .placeholder, #d-body-preview .placeholder { color: var(--muted); }
-.detail { container-type: inline-size; }
-.editwrap { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: start; }
-@container (min-width: 700px) { .editwrap { grid-template-columns: 1fr 1fr; } }
-#d-body-preview {
-  border: 1.5px dashed var(--hairline); border-radius: 10px; padding: 12px 14px; min-height: 48px;
-}
 .comment .editbox {
   width: 100%; min-height: 60px; resize: vertical; padding: 8px 11px; margin-top: 2px;
   background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; outline: none;
@@ -768,6 +759,62 @@ function stamp() {
   return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes());
 }
 
+/* Serialize the WYSIWYG editor's DOM back to markdown — the stored format.
+   Handles browser-generated structure (divs, <br>, <b>/<i>, li>ul and ul>ul
+   nesting from indent commands); unknown tags fall back to their text. */
+function htmlToMd(root) {
+  const out = [];
+  const inline = node => {
+    let s = '';
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { s += n.nodeValue.replace(/ /g, ' '); continue; }
+      if (n.nodeType !== 1) continue;
+      const tag = n.tagName;
+      if (tag === 'BR') s += '\n';
+      else if (tag === 'B' || tag === 'STRONG') { const c = inline(n); s += c.trim() ? '**' + c + '**' : c; }
+      else if (tag === 'I' || tag === 'EM') { const c = inline(n); s += c.trim() ? '*' + c + '*' : c; }
+      else if (tag === 'DEL' || tag === 'S' || tag === 'STRIKE') s += '~~' + inline(n) + '~~';
+      else if (tag === 'CODE') s += '`' + n.textContent + '`';
+      else if (tag === 'A') s += '[' + inline(n) + '](' + (n.getAttribute('href') || '') + ')';
+      else if (tag === 'INPUT') { /* checkbox handled at li level */ }
+      else if (tag === 'P' || tag === 'DIV') s += inline(n) + '\n';
+      else s += inline(n);
+    }
+    return s;
+  };
+  const list = (el, depth) => {
+    let idx = 1;
+    for (const li of [...el.children]) {
+      if (li.tagName === 'UL' || li.tagName === 'OL') { list(li, depth + 1); continue; }
+      if (li.tagName !== 'LI') continue;
+      let cb = null;
+      for (const inp of li.querySelectorAll('input[type=checkbox]')) if (inp.closest('li') === li) { cb = inp; break; }
+      const clone = li.cloneNode(true);
+      clone.querySelectorAll('ul, ol').forEach(x => { if (x.parentElement === clone) x.remove(); });
+      let marker = el.tagName === 'OL' ? (idx + '. ') : '- ';
+      if (cb) marker = '- [' + ((cb.checked || cb.hasAttribute('checked')) ? 'x' : ' ') + '] ';
+      out.push('  '.repeat(depth) + marker + inline(clone).replace(/\s*\n\s*/g, ' ').trim());
+      idx++;
+      for (const sub of [...li.children]) if (sub.tagName === 'UL' || sub.tagName === 'OL') list(sub, depth + 1);
+    }
+  };
+  const block = el => {
+    const tag = el.tagName;
+    if (tag === 'UL' || tag === 'OL') { list(el, 0); out.push(''); return; }
+    if (/^H[1-4]$/.test(tag)) { out.push('#'.repeat(+tag[1]) + ' ' + inline(el).trim()); out.push(''); return; }
+    if (tag === 'PRE') { out.push('```'); out.push(el.textContent.replace(/\n$/, '')); out.push('```'); out.push(''); return; }
+    if (tag === 'BLOCKQUOTE') { inline(el).replace(/\n$/, '').split('\n').forEach(l => out.push('> ' + l)); out.push(''); return; }
+    if (tag === 'HR') { out.push('---'); out.push(''); return; }
+    inline(el).replace(/\n$/, '').split('\n').forEach(l => out.push(l));
+    out.push('');
+  };
+  for (const n of root.childNodes) {
+    if (n.nodeType === 3) { if (n.nodeValue.trim()) { out.push(n.nodeValue.replace(/ /g, ' ')); out.push(''); } continue; }
+    if (n.nodeType === 1) block(n);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /* Google-Docs-style list editing in textareas:
    Enter continues "- " / "* " / "1. " lists (numbers increment);
    Enter on an empty item outdents, or removes the bullet at top level;
@@ -957,7 +1004,7 @@ function renderList() {
 }
 
 function selectThread(id) {
-  if (ui.sel !== id) { ui.editingC = null; ui.editingNotes = false; }
+  if (ui.sel !== id) ui.editingC = null;
   ui.sel = id;
   document.body.classList.add('detail-open');
   renderList(); renderDetail(); renderMatrix();
@@ -975,20 +1022,9 @@ function captureHeights() {
     lsSet(PANE_KEY, JSON.stringify(paneH));
   }
 }
-function autoGrow(el) {                 /* notes box always fits its whole content */
-  /* measuring via height:auto collapses the box for a frame — pin the pane's
-     scroll position so the page doesn't jump to the top mid-edit */
-  const sc = el.closest('.detailcol') || document.scrollingElement;
-  const top = sc.scrollTop;
-  el.style.height = 'auto';
-  el.style.height = (el.scrollHeight + 2) + 'px';
-  sc.scrollTop = top;
-}
 function applyHeights(t) {
   const ch = paneH['comment:' + t.id];
   if (ch) document.getElementById('c-in').style.height = ch;
-  const b = document.getElementById('d-body');
-  if (b) autoGrow(b);
 }
 
 function renderDetail() {
@@ -1015,13 +1051,8 @@ function renderDetail() {
      + t.tags.map(g => '<span class="tagchip">#' + esc(g) + '<button data-rmtag="' + esc(g) + '" title="remove">×</button></span>').join('')
      + '<input id="tag-in" placeholder="+ tag, Enter"></div></div>';
   h += '</div>';
-  h += '<div class="sect"><h3>Notes <span class="count" style="text-transform:none">' + (ui.editingNotes ? 'markdown · click outside when done' : 'markdown · click to edit') + '</span></h3>';
-  if (ui.editingNotes) {
-    h += '<div class="editwrap"><textarea id="d-body" placeholder="Running notes for this thread…">' + esc(t.body) + '</textarea>'
-       + '<div class="md" id="d-body-preview">' + (t.body.trim() ? renderMD(t.body) : '<span class="placeholder">Preview appears here…</span>') + '</div></div>';
-  }
-  else h += '<div class="md" id="d-body-view">' + (t.body.trim() ? renderMD(t.body) : '<span class="placeholder">Click to add notes…</span>') + '</div>';
-  h += '</div>';
+  h += '<div class="sect"><h3>Notes <span class="count" style="text-transform:none">type "- ", "1." or "[]" for lists · Tab nests · Ctrl+B/I</span></h3>'
+     + '<div class="md" id="d-body" contenteditable="true">' + renderMD(t.body) + '</div></div>';
 
   h += '<div class="sect"><h3>Comments <span class="count">' + t.comments.length + '</span></h3><div id="comments">';
   for (const c of t.comments) {
@@ -1093,25 +1124,49 @@ function wireDetail(t) {
     t.tags = t.tags.filter(g => g !== b.dataset.rmtag); touch(t); renderDetail(); renderRail(); renderList();
   });
   const body = document.getElementById('d-body');
-  if (body) {
-    const syncPreview = () => {
-      const p = document.getElementById('d-body-preview');
-      if (p) p.innerHTML = t.body.trim() ? renderMD(t.body) : '<span class="placeholder">Preview appears here…</span>';
-    };
-    body.oninput = () => { t.body = body.value; touch(t); autoGrow(body); syncPreview(); };
-    listEditor(body, () => { t.body = body.value; touch(t); autoGrow(body); syncPreview(); });
-    body.onblur = () => setTimeout(() => {      /* let a click on the old DOM land first */
-      if (ui.editingNotes) { ui.editingNotes = false; renderDetail(); }
-    }, 120);
-  } else {
-    const view = document.getElementById('d-body-view');
-    view.onclick = e => {
-      if (e.target.tagName === 'A' || e.target.tagName === 'INPUT') return;
-      ui.editingNotes = true; renderDetail();
-      const b = document.getElementById('d-body');
-      if (b) { b.focus(); b.selectionStart = b.selectionEnd = b.value.length; }
-    };
-  }
+  body.querySelectorAll('input[type=checkbox]').forEach(cb => cb.removeAttribute('disabled'));
+  const serialize = () => { t.body = htmlToMd(body); touch(t); };
+  body.addEventListener('input', serialize);
+  body.addEventListener('click', e => {
+    if (e.target.tagName === 'INPUT' && e.target.type === 'checkbox') {
+      e.preventDefault();
+      const on = !e.target.hasAttribute('checked');
+      e.target.checked = on;
+      if (on) e.target.setAttribute('checked', ''); else e.target.removeAttribute('checked');
+      serialize();
+    }
+  });
+  body.addEventListener('keydown', e => {
+    const sel = window.getSelection && window.getSelection();
+    const anchor = sel && sel.anchorNode;
+    const el = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+    if (e.key === 'Tab') {
+      const li = el && el.closest && el.closest('li');
+      if (li && body.contains(li) && document.execCommand) {
+        e.preventDefault();
+        document.execCommand(e.shiftKey ? 'outdent' : 'indent');
+        serialize();
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'b') { e.preventDefault(); if (document.execCommand) { document.execCommand('bold'); serialize(); } return; }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); if (document.execCommand) { document.execCommand('italic'); serialize(); } return; }
+    if (e.key === ' ' && document.execCommand) {
+      /* Docs-style auto-lists: "- ", "* ", "1. ", "[] ", "[x] " at line start */
+      if (!sel || !sel.isCollapsed) return;
+      const node = sel.anchorNode;
+      if (!node || node.nodeType !== 3 || node.previousSibling) return;
+      if (el && el.closest && el.closest('li')) return;
+      const m = node.nodeValue.slice(0, sel.anchorOffset).match(/^(-|\*|\d+[.)]|\[\s?\]|\[x\])$/i);
+      if (!m) return;
+      e.preventDefault();
+      node.nodeValue = node.nodeValue.slice(sel.anchorOffset);
+      sel.collapse(node, 0);
+      document.execCommand(/^\d/.test(m[1]) ? 'insertOrderedList' : 'insertUnorderedList');
+      if (/^\[/.test(m[1])) document.execCommand('insertHTML', false, '<input type="checkbox"' + (/x/i.test(m[1]) ? ' checked' : '') + '> ');
+      serialize();
+    }
+  });
   const cIn = document.getElementById('c-in');
   listEditor(cIn);
   const post = () => {
@@ -1304,8 +1359,6 @@ window.addEventListener('resize', () => {
   clearTimeout(rsTimer);
   rsTimer = setTimeout(() => {
     if (ui.view === 'matrix') renderMatrix();
-    const b = document.getElementById('d-body');
-    if (b) autoGrow(b);                  // re-wrap changes content height
   }, 150);
 });
 const searchEl = document.getElementById('search');
@@ -1343,8 +1396,10 @@ document.getElementById('m-theme').onclick = () => {
 applyTheme(lsGet(THEME_KEY) || 'auto');
 
 document.addEventListener('keydown', e => {
-  const tag = document.activeElement && document.activeElement.tagName;
-  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  const ae = document.activeElement;
+  const tag = ae && ae.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+    || !!(ae && (ae.isContentEditable || (ae.getAttribute && ae.getAttribute('contenteditable') === 'true')));
   if (e.key === '/' && !typing) { e.preventDefault(); searchEl.focus(); searchEl.select(); }
   if (e.key === 'n' && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); document.getElementById('btn-new').click(); }
   if (e.key === 'Escape') {
