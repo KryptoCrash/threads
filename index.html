@@ -155,7 +155,7 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .sect > h3 .count { font-weight: 400; }
 #d-body {
-  width: 100%; min-height: 76px; resize: vertical; padding: 10px 12px;
+  width: 100%; min-height: 100px; height: 220px; resize: vertical; padding: 10px 12px;
   background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; outline: none;
 }
 #d-body:focus { border-color: var(--accent); }
@@ -875,7 +875,8 @@ function selectThread(id) {
 }
 
 /* manual textarea resizes survive re-renders: capture per-thread heights (device-local) */
-let paneH = {}; try { paneH = JSON.parse(lsGet('threads-pane-heights') || '{}'); } catch (e) {}
+const PANE_KEY = 'threads-pane-heights-v2';   // v2: key rotated when the default height changed
+let paneH = {}; try { paneH = JSON.parse(lsGet(PANE_KEY) || '{}'); } catch (e) {}
 function captureHeights() {
   if (!ui.detailFor) return;
   let changed = false;
@@ -884,7 +885,7 @@ function captureHeights() {
     const h = el && (el.style.height || (el.offsetHeight ? el.offsetHeight + 'px' : ''));
     if (h && paneH[key + ':' + ui.detailFor] !== h) { paneH[key + ':' + ui.detailFor] = h; changed = true; }
   }
-  if (changed) lsSet('threads-pane-heights', JSON.stringify(paneH));
+  if (changed) lsSet(PANE_KEY, JSON.stringify(paneH));
 }
 function applyHeights(t) {
   const bh = paneH['notes:' + t.id], ch = paneH['comment:' + t.id];
