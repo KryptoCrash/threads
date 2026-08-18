@@ -120,6 +120,7 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .card .snippet { margin-top: 6px; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .card .tags { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
 .tagchip { font-size: 11px; padding: 1px 7px; border-radius: 20px; border: 1px solid var(--hairline); color: var(--ink-2); background: var(--page); }
+.draftmark { color: var(--urgency); }
 .stat { display: inline-flex; align-items: center; gap: 5px; }
 .stat .dot { width: 8px; height: 8px; border-radius: 50%; }
 
@@ -994,6 +995,7 @@ function renderList() {
       + '<span title="' + abs(t.updated) + '">' + rel(t.updated) + '</span>'
       + (t.comments.length ? '<span>💬 ' + t.comments.length + '</span>' : '')
       + (t.files.length ? '<span>📎 ' + t.files.length + '</span>' : '')
+      + (drafts[t.id] ? '<span class="draftmark" title="Unfinished comment draft">✎ draft</span>' : '')
       + '</div>'
       + (t.tags.length ? '<div class="tags">' + t.tags.map(g => '<span class="tagchip">#' + esc(g) + '</span>').join('') + '</div>' : '')
       + (snip ? '<div class="snippet"><span style="color:var(--muted)">' + snip.kind + ':</span> ' + snip.html + '</div>' : '')
@@ -1013,6 +1015,16 @@ function selectThread(id) {
 /* manual textarea resizes survive re-renders: capture per-thread heights (device-local) */
 const PANE_KEY = 'threads-pane-heights-v2';   // v2: key rotated when the default height changed
 let paneH = {}; try { paneH = JSON.parse(lsGet(PANE_KEY) || '{}'); } catch (e) {}
+
+/* unfinished comment text survives re-renders, thread switches, and reloads (device-local) */
+const DRAFT_KEY = 'threads-drafts';
+let drafts = {}; try { drafts = JSON.parse(lsGet(DRAFT_KEY) || '{}'); } catch (e) {}
+let draftTimer = null;
+function setDraft(key, text) {
+  if (text && text.trim()) drafts[key] = text; else delete drafts[key];
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => lsSet(DRAFT_KEY, JSON.stringify(drafts)), 300);
+}
 function captureHeights() {
   if (!ui.detailFor) return;
   const el = document.querySelector('#c-in');
@@ -1059,7 +1071,7 @@ function renderDetail() {
     const edited = c.edited ? ' <span title="edited ' + abs(c.edited) + '">(edited)</span>' : '';
     if (ui.editingC === c.id) {
       h += '<div class="comment"><div class="head"><span>' + abs(c.ts) + edited + '</span><span class="spacer"></span></div>'
-         + '<textarea class="editbox" id="c-edit">' + esc(c.text) + '</textarea>'
+         + '<textarea class="editbox" id="c-edit">' + esc(drafts['edit:' + c.id] != null ? drafts['edit:' + c.id] : c.text) + '</textarea>'
          + '<div class="editbtns"><button class="btn" id="c-edit-cancel">Cancel</button><button class="btn primary" id="c-edit-save">Save</button></div></div>';
     } else {
       h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span>' + edited + '<span class="spacer"></span>'
@@ -1068,7 +1080,7 @@ function renderDetail() {
          + '<div class="body md">' + renderMD(c.text) + '</div></div>';
     }
   }
-  h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter)"></textarea><button class="btn primary" id="c-add">Post</button></div></div>';
+  h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter)">' + esc(drafts[t.id] || '') + '</textarea><button class="btn primary" id="c-add">Post</button></div></div>';
 
   h += '<div class="sect"><h3>Files <span class="count">' + t.files.length + '</span></h3>';
   h += '<div class="filezone" id="filezone">Drop files here, <button id="f-pick">browse</button>, or <button id="f-link">add a path / URL</button></div>';
@@ -1169,9 +1181,12 @@ function wireDetail(t) {
   });
   const cIn = document.getElementById('c-in');
   listEditor(cIn);
+  cIn.addEventListener('input', () => setDraft(t.id, cIn.value));
   const post = () => {
     const text = cIn.value.trim(); if (!text) return;
-    t.comments.push({ id: uid(), ts: now(), text }); touch(t); renderDetail(); renderList();
+    t.comments.push({ id: uid(), ts: now(), text });
+    setDraft(t.id, '');
+    touch(t); renderDetail(); renderList();
     document.getElementById('c-in').focus();
   };
   document.getElementById('c-add').onclick = post;
@@ -1184,12 +1199,14 @@ function wireDetail(t) {
   const editBox = document.getElementById('c-edit');
   if (editBox) {
     const c = t.comments.find(x => x.id === ui.editingC);
+    editBox.addEventListener('input', () => setDraft('edit:' + ui.editingC, editBox.value));
     const saveEdit = () => {
       const text = editBox.value.trim();
       if (text && c && text !== c.text) { c.text = text; c.edited = now(); touch(t); renderList(); }
+      if (c) setDraft('edit:' + c.id, '');
       ui.editingC = null; renderDetail();
     };
-    const cancelEdit = () => { ui.editingC = null; renderDetail(); };
+    const cancelEdit = () => { if (c) setDraft('edit:' + c.id, ''); ui.editingC = null; renderDetail(); };
     document.getElementById('c-edit-save').onclick = saveEdit;
     document.getElementById('c-edit-cancel').onclick = cancelEdit;
     editBox.onkeydown = e => {
@@ -1200,6 +1217,7 @@ function wireDetail(t) {
   }
   document.querySelectorAll('[data-delc]').forEach(b => b.onclick = async () => {
     if (await confirmModal('Delete comment?', 'This removes the comment permanently.')) {
+      setDraft('edit:' + b.dataset.delc, '');
       t.comments = t.comments.filter(c => c.id !== b.dataset.delc); touch(t); renderDetail(); renderList();
     }
   });
@@ -1236,6 +1254,7 @@ function wireDetail(t) {
       state.threads = state.threads.filter(x => x.id !== t.id);
       state.tombstones[t.id] = now();
       delete paneH['notes:' + t.id]; delete paneH['comment:' + t.id];
+      setDraft(t.id, ''); t.comments.forEach(c => setDraft('edit:' + c.id, ''));
       ui.sel = null; ui.detailFor = null; save(); document.body.classList.remove('detail-open'); renderAll();
     }
   };
