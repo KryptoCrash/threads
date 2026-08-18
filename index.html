@@ -888,8 +888,13 @@ function captureHeights() {
   }
 }
 function autoGrow(el) {                 /* notes box always fits its whole content */
+  /* measuring via height:auto collapses the box for a frame — pin the pane's
+     scroll position so the page doesn't jump to the top mid-edit */
+  const sc = el.closest('.detailcol') || document.scrollingElement;
+  const top = sc.scrollTop;
   el.style.height = 'auto';
   el.style.height = (el.scrollHeight + 2) + 'px';
+  sc.scrollTop = top;
 }
 function applyHeights(t) {
   const ch = paneH['comment:' + t.id];
