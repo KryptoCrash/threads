@@ -99,6 +99,7 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 }
 .frow:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .frow.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
+.frow.off { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--ink); text-decoration: line-through; }
 .frow .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .frow .n { margin-left: auto; color: var(--muted); font-size: 12px; }
 .rail select { width: 100%; padding: 6px 8px; background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; }
@@ -353,7 +354,7 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e
 let state = loadState();
 const ui = {
   view: 'list', sel: null, q: '',
-  statusF: new Set(Object.keys(STATUSES)), tagF: new Set(),
+  statusInc: new Set(), statusExc: new Set(), tagInc: new Set(), tagExc: new Set(),
   sort: lsGet('threads-sort') || 'priority',
   fileHandle: null, linkPaused: false,
 };
@@ -904,8 +905,13 @@ function hl(escaped, terms) {
 }
 function visibleThreads() {
   const terms = ui.q.toLowerCase().split(/\s+/).filter(Boolean);
-  let ts = state.threads.filter(t => ui.statusF.has(t.status));
-  if (ui.tagF.size) ts = ts.filter(t => t.tags.some(g => ui.tagF.has(g)));
+  let ts = state.threads.filter(t => {
+    if (ui.statusExc.has(t.status)) return false;
+    if (ui.statusInc.size && !ui.statusInc.has(t.status)) return false;
+    if (t.tags.some(g => ui.tagExc.has(g))) return false;
+    if (ui.tagInc.size && !t.tags.some(g => ui.tagInc.has(g))) return false;
+    return true;
+  });
   if (terms.length) ts = ts.filter(t => matches(t, terms));
   const cmp = {
     priority:   (a, b) => (b.importance + b.urgency) - (a.importance + a.urgency) || b.urgency - a.urgency || (b.updated > a.updated ? 1 : -1),
@@ -938,12 +944,14 @@ function renderRail() {
     counts[t.status] = (counts[t.status] || 0) + 1;
     for (const g of t.tags) tagCounts[g] = (tagCounts[g] || 0) + 1;
   }
+  const triClass = (inc, exc, k) => inc.has(k) ? 'on' : exc.has(k) ? 'off' : '';
   let h = '<h4>Status</h4>';
   for (const [k, s] of Object.entries(STATUSES)) {
-    h += '<button class="frow ' + (ui.statusF.has(k) ? 'on' : '') + '" data-status="' + k + '">'
+    h += '<button class="frow ' + triClass(ui.statusInc, ui.statusExc, k) + '" data-status="' + k + '" title="click cycles: show only → hide → clear">'
        + '<span class="dot" style="background:' + s.color + '"></span>' + s.label
        + '<span class="n">' + (counts[k] || 0) + '</span></button>';
   }
+  if (ui.statusInc.size || ui.statusExc.size) h += '<button class="frow" data-clearstatus="1" style="color:var(--muted)">clear status filter</button>';
   h += '<h4>Sort by</h4><select id="sortsel">';
   for (const [v, l] of [['priority', 'Priority (I+U)'], ['importance', 'Importance'], ['urgency', 'Urgency'], ['updated', 'Recently updated'], ['created', 'Recently created'], ['title', 'Title A–Z']]) {
     h += '<option value="' + v + '"' + (ui.sort === v ? ' selected' : '') + '>' + l + '</option>';
@@ -953,25 +961,22 @@ function renderRail() {
   if (tags.length) {
     h += '<h4>Tags</h4>';
     for (const g of tags) {
-      h += '<button class="frow ' + (ui.tagF.has(g) ? 'on' : '') + '" data-tag="' + esc(g) + '">#' + esc(g) + '<span class="n">' + tagCounts[g] + '</span></button>';
+      h += '<button class="frow ' + triClass(ui.tagInc, ui.tagExc, g) + '" data-tag="' + esc(g) + '" title="click cycles: show only → hide → clear">#' + esc(g) + '<span class="n">' + tagCounts[g] + '</span></button>';
     }
-    if (ui.tagF.size) h += '<button class="frow" data-cleartags="1" style="color:var(--muted)">clear tag filter</button>';
+    if (ui.tagInc.size || ui.tagExc.size) h += '<button class="frow" data-cleartags="1" style="color:var(--muted)">clear tag filter</button>';
   }
   h += '<div class="meter" id="meter"></div>';
   h += '<div style="margin-top:14px;font-size:11px;color:var(--muted)"><span class="kbd">/</span> search &nbsp;<span class="kbd">n</span> new &nbsp;<span class="kbd">esc</span> close</div>';
   rail.innerHTML = h;
-  rail.querySelectorAll('[data-status]').forEach(b => b.onclick = () => {
-    const k = b.dataset.status;
-    if (ui.statusF.has(k) && ui.statusF.size === 1) { Object.keys(STATUSES).forEach(x => ui.statusF.add(x)); }
-    else if (ui.statusF.has(k)) ui.statusF.delete(k); else ui.statusF.add(k);
-    renderAll();
-  });
-  rail.querySelectorAll('[data-tag]').forEach(b => b.onclick = () => {
-    const g = b.dataset.tag;
-    if (ui.tagF.has(g)) ui.tagF.delete(g); else ui.tagF.add(g);
-    renderAll();
-  });
-  const ct = rail.querySelector('[data-cleartags]'); if (ct) ct.onclick = () => { ui.tagF.clear(); renderAll(); };
+  const cycle = (inc, exc, k) => {
+    if (inc.has(k)) { inc.delete(k); exc.add(k); }        /* show only → hide */
+    else if (exc.has(k)) exc.delete(k);                    /* hide → clear */
+    else inc.add(k);                                       /* clear → show only */
+  };
+  rail.querySelectorAll('[data-status]').forEach(b => b.onclick = () => { cycle(ui.statusInc, ui.statusExc, b.dataset.status); renderAll(); });
+  rail.querySelectorAll('[data-tag]').forEach(b => b.onclick = () => { cycle(ui.tagInc, ui.tagExc, b.dataset.tag); renderAll(); });
+  const cs = rail.querySelector('[data-clearstatus]'); if (cs) cs.onclick = () => { ui.statusInc.clear(); ui.statusExc.clear(); renderAll(); };
+  const ct = rail.querySelector('[data-cleartags]'); if (ct) ct.onclick = () => { ui.tagInc.clear(); ui.tagExc.clear(); renderAll(); };
   document.getElementById('sortsel').onchange = e => { ui.sort = e.target.value; lsSet('threads-sort', ui.sort); renderList(); renderMatrix(); };
   renderMeter();
 }
