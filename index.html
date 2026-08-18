@@ -192,7 +192,13 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
   padding: 12px 14px; min-height: 48px; cursor: text;
 }
 #d-body-view:hover { border-color: var(--baseline); }
-#d-body-view .placeholder { color: var(--muted); }
+#d-body-view .placeholder, #d-body-preview .placeholder { color: var(--muted); }
+.detail { container-type: inline-size; }
+.editwrap { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: start; }
+@container (min-width: 700px) { .editwrap { grid-template-columns: 1fr 1fr; } }
+#d-body-preview {
+  border: 1.5px dashed var(--hairline); border-radius: 10px; padding: 12px 14px; min-height: 48px;
+}
 .comment .editbox {
   width: 100%; min-height: 60px; resize: vertical; padding: 8px 11px; margin-top: 2px;
   background: var(--page); border: 1px solid var(--hairline); border-radius: 8px; outline: none;
@@ -1010,7 +1016,10 @@ function renderDetail() {
      + '<input id="tag-in" placeholder="+ tag, Enter"></div></div>';
   h += '</div>';
   h += '<div class="sect"><h3>Notes <span class="count" style="text-transform:none">' + (ui.editingNotes ? 'markdown · click outside when done' : 'markdown · click to edit') + '</span></h3>';
-  if (ui.editingNotes) h += '<textarea id="d-body" placeholder="Running notes for this thread…">' + esc(t.body) + '</textarea>';
+  if (ui.editingNotes) {
+    h += '<div class="editwrap"><textarea id="d-body" placeholder="Running notes for this thread…">' + esc(t.body) + '</textarea>'
+       + '<div class="md" id="d-body-preview">' + (t.body.trim() ? renderMD(t.body) : '<span class="placeholder">Preview appears here…</span>') + '</div></div>';
+  }
   else h += '<div class="md" id="d-body-view">' + (t.body.trim() ? renderMD(t.body) : '<span class="placeholder">Click to add notes…</span>') + '</div>';
   h += '</div>';
 
@@ -1085,8 +1094,12 @@ function wireDetail(t) {
   });
   const body = document.getElementById('d-body');
   if (body) {
-    body.oninput = () => { t.body = body.value; touch(t); autoGrow(body); };
-    listEditor(body, () => { t.body = body.value; touch(t); autoGrow(body); });
+    const syncPreview = () => {
+      const p = document.getElementById('d-body-preview');
+      if (p) p.innerHTML = t.body.trim() ? renderMD(t.body) : '<span class="placeholder">Preview appears here…</span>';
+    };
+    body.oninput = () => { t.body = body.value; touch(t); autoGrow(body); syncPreview(); };
+    listEditor(body, () => { t.body = body.value; touch(t); autoGrow(body); syncPreview(); });
     body.onblur = () => setTimeout(() => {      /* let a click on the old DOM land first */
       if (ui.editingNotes) { ui.editingNotes = false; renderDetail(); }
     }, 120);
