@@ -12,7 +12,7 @@
   --border: rgba(11,11,11,0.10);
   --accent: #2a78d6;            /* importance hue (blue, step 450) */
   --urgency: #eb6834;           /* urgency hue (orange, categorical slot 2) */
-  --st-active: #2a78d6; --st-waiting: #fab219; --st-done: #0ca30c; --st-dropped: #898781;
+  --st-active: #2a78d6; --st-working: #4a3aa7; --st-waiting: #fab219; --st-done: #0ca30c; --st-dropped: #898781;
   --danger: #d03b3b;
   --shadow: 0 8px 30px rgba(11,11,11,0.12);
 }
@@ -23,7 +23,7 @@
     --muted: #898781; --hairline: #2c2c2a; --baseline: #383835;
     --border: rgba(255,255,255,0.10);
     --accent: #3987e5; --urgency: #d95926;
-    --st-active: #3987e5;
+    --st-active: #3987e5; --st-working: #9085e9;
     --shadow: 0 8px 30px rgba(0,0,0,0.5);
   }
 }
@@ -33,7 +33,7 @@
   --muted: #898781; --hairline: #2c2c2a; --baseline: #383835;
   --border: rgba(255,255,255,0.10);
   --accent: #3987e5; --urgency: #d95926;
-  --st-active: #3987e5;
+  --st-active: #3987e5; --st-working: #9085e9;
   --shadow: 0 8px 30px rgba(0,0,0,0.5);
 }
 * { box-sizing: border-box; }
@@ -313,6 +313,7 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 const LS_KEY = 'threads-tracker-v1', THEME_KEY = 'threads-theme';
 const STATUSES = {
   active:  { label: 'Active',  color: 'var(--st-active)' },
+  working: { label: 'Working', color: 'var(--st-working)' },
   waiting: { label: 'Waiting', color: 'var(--st-waiting)' },
   done:    { label: 'Done',    color: 'var(--st-done)' },
   dropped: { label: 'Dropped', color: 'var(--st-dropped)' },
