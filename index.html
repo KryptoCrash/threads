@@ -832,6 +832,17 @@ function listEditor(el, onChange) {
     const setVal = (val, pos) => {
       el.value = val;
       el.selectionStart = el.selectionEnd = pos;
+      /* browsers don't scroll a textarea to a programmatically-set caret — do it ourselves */
+      const cs = window.getComputedStyle(el);
+      let lh = parseFloat(cs.lineHeight);
+      if (!lh || isNaN(lh)) lh = (parseFloat(cs.fontSize) || 14) * 1.45;
+      const padTop = parseFloat(cs.paddingTop) || 0;
+      const y = padTop + (val.slice(0, pos).split('\n').length - 1) * lh;
+      if (el.clientHeight > 0) {
+        if (pos >= val.length) el.scrollTop = el.scrollHeight;   /* at end: wrap-proof */
+        else if (y + lh > el.scrollTop + el.clientHeight) el.scrollTop = y + lh - el.clientHeight + 4;
+        else if (y < el.scrollTop) el.scrollTop = y;
+      }
       if (onChange) onChange();
     };
     if (e.key === 'Tab') {
