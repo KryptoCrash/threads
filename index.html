@@ -155,7 +155,7 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
 .sect > h3 .count { font-weight: 400; }
 #d-body {
-  width: 100%; min-height: 100px; height: 220px; resize: vertical; padding: 10px 12px;
+  width: 100%; min-height: 120px; resize: none; overflow: hidden; padding: 10px 12px;
   background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; outline: none;
 }
 #d-body:focus { border-color: var(--accent); }
@@ -879,18 +879,21 @@ const PANE_KEY = 'threads-pane-heights-v2';   // v2: key rotated when the defaul
 let paneH = {}; try { paneH = JSON.parse(lsGet(PANE_KEY) || '{}'); } catch (e) {}
 function captureHeights() {
   if (!ui.detailFor) return;
-  let changed = false;
-  for (const [key, sel] of [['notes', '#d-body'], ['comment', '#c-in']]) {
-    const el = document.querySelector(sel);
-    const h = el && (el.style.height || (el.offsetHeight ? el.offsetHeight + 'px' : ''));
-    if (h && paneH[key + ':' + ui.detailFor] !== h) { paneH[key + ':' + ui.detailFor] = h; changed = true; }
+  const el = document.querySelector('#c-in');
+  const h = el && (el.style.height || (el.offsetHeight ? el.offsetHeight + 'px' : ''));
+  if (h && paneH['comment:' + ui.detailFor] !== h) {
+    paneH['comment:' + ui.detailFor] = h;
+    lsSet(PANE_KEY, JSON.stringify(paneH));
   }
-  if (changed) lsSet(PANE_KEY, JSON.stringify(paneH));
+}
+function autoGrow(el) {                 /* notes box always fits its whole content */
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight + 2) + 'px';
 }
 function applyHeights(t) {
-  const bh = paneH['notes:' + t.id], ch = paneH['comment:' + t.id];
-  if (bh) document.getElementById('d-body').style.height = bh;
+  const ch = paneH['comment:' + t.id];
   if (ch) document.getElementById('c-in').style.height = ch;
+  autoGrow(document.getElementById('d-body'));
 }
 
 function renderDetail() {
@@ -989,8 +992,8 @@ function wireDetail(t) {
     t.tags = t.tags.filter(g => g !== b.dataset.rmtag); touch(t); renderDetail(); renderRail(); renderList();
   });
   const body = document.getElementById('d-body');
-  body.oninput = () => { t.body = body.value; touch(t); };
-  listEditor(body, () => { t.body = body.value; touch(t); });
+  body.oninput = () => { t.body = body.value; touch(t); autoGrow(body); };
+  listEditor(body, () => { t.body = body.value; touch(t); autoGrow(body); });
   const cIn = document.getElementById('c-in');
   listEditor(cIn);
   const post = () => {
@@ -1180,8 +1183,12 @@ document.getElementById('btn-new').onclick = () => {
 };
 let rsTimer = null;
 window.addEventListener('resize', () => {
-  if (ui.view !== 'matrix') return;
-  clearTimeout(rsTimer); rsTimer = setTimeout(renderMatrix, 150);
+  clearTimeout(rsTimer);
+  rsTimer = setTimeout(() => {
+    if (ui.view === 'matrix') renderMatrix();
+    const b = document.getElementById('d-body');
+    if (b) autoGrow(b);                  // re-wrap changes content height
+  }, 150);
 });
 const searchEl = document.getElementById('search');
 searchEl.oninput = () => { ui.q = searchEl.value; renderList(); renderMatrix(); };
