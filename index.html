@@ -1177,10 +1177,35 @@ function wireDetail(t) {
       serialize();
     }
   });
+  /* paste is always normalized to the markdown subset (kills pasted colors/fonts);
+     Ctrl+Shift+V pastes literal plain text */
+  let plainPaste = false;
+  body.addEventListener('paste', e => {
+    e.preventDefault();
+    const cd = e.clipboardData || window.clipboardData;
+    const txt = (cd && cd.getData('text/plain')) || '';
+    const htmlIn = plainPaste ? '' : ((cd && cd.getData('text/html')) || '');
+    plainPaste = false;
+    let ins = '';
+    if (htmlIn) {
+      try {
+        const docp = new DOMParser().parseFromString(htmlIn, 'text/html');   /* inert: nothing executes */
+        const md = htmlToMd(docp.body);
+        if (md) ins = renderMD(md);
+      } catch (err) {}
+    }
+    if (!ins && txt) ins = esc(txt).replace(/\n/g, '<br>');
+    if (ins && document.execCommand) { document.execCommand('insertHTML', false, ins); serialize(); }
+  });
   body.addEventListener('keydown', e => {
     const sel = window.getSelection && window.getSelection();
     const anchor = sel && sel.anchorNode;
     const el = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
+      plainPaste = true;                       /* the paste event follows; don't preventDefault */
+      setTimeout(() => { plainPaste = false; }, 800);
+      return;
+    }
     if (e.key === 'Tab') {
       const li = el && el.closest && el.closest('li');
       if (li && body.contains(li) && document.execCommand) {
