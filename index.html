@@ -1194,14 +1194,18 @@ function wireDetail(t) {
     }
   });
   /* paste is always normalized to the markdown subset (kills pasted colors/fonts);
-     Ctrl+Shift+V pastes literal plain text */
-  let plainPaste = false;
+     Ctrl/Cmd+Shift+V pastes literal plain text */
+  const insertPlain = txt => {
+    if (txt && document.execCommand) {
+      document.execCommand('insertHTML', false, esc(txt).replace(/\n/g, '<br>'));
+      serialize();
+    }
+  };
   body.addEventListener('paste', e => {
     e.preventDefault();
     const cd = e.clipboardData || window.clipboardData;
     const txt = (cd && cd.getData('text/plain')) || '';
-    const htmlIn = plainPaste ? '' : ((cd && cd.getData('text/html')) || '');
-    plainPaste = false;
+    const htmlIn = (cd && cd.getData('text/html')) || '';
     let ins = '';
     if (htmlIn) {
       try {
@@ -1218,8 +1222,15 @@ function wireDetail(t) {
     const anchor = sel && sel.anchorNode;
     const el = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v') {
-      plainPaste = true;                       /* the paste event follows; don't preventDefault */
-      setTimeout(() => { plainPaste = false; }, 800);
+      /* handle the chord ourselves — on some platforms (Ctrl+Shift+V on Mac) the
+         browser has no native paste bound to it, so waiting for a paste event hangs */
+      e.preventDefault();
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then(insertPlain,
+          () => toast('Clipboard read blocked — plain Ctrl+V works; pasted styling is stripped automatically'));
+      } else {
+        toast('Plain-paste needs clipboard access (https) — Ctrl+V works; styling is stripped automatically');
+      }
       return;
     }
     if (e.key === 'Tab') {
