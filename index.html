@@ -820,13 +820,29 @@ function htmlToMd(root) {
     if (tag === 'PRE') { out.push('```'); out.push(el.textContent.replace(/\n$/, '')); out.push('```'); out.push(''); return; }
     if (tag === 'BLOCKQUOTE') { inline(el).replace(/\n$/, '').split('\n').forEach(l => out.push('> ' + l)); out.push(''); return; }
     if (tag === 'HR') { out.push('---'); out.push(''); return; }
+    /* container div/p wrapping real blocks (common in pasted HTML): descend */
+    if (el.querySelector && el.querySelector('ul,ol,pre,blockquote,h1,h2,h3,h4,hr')) { walk(el); return; }
     inline(el).replace(/\n$/, '').split('\n').forEach(l => out.push(l));
     out.push('');
   };
-  for (const n of root.childNodes) {
-    if (n.nodeType === 3) { if (n.nodeValue.trim()) { out.push(n.nodeValue.replace(/ /g, ' ')); out.push(''); } continue; }
-    if (n.nodeType === 1) block(n);
-  }
+  const INLINE = new Set(['B', 'STRONG', 'I', 'EM', 'DEL', 'S', 'STRIKE', 'CODE', 'A', 'SPAN', 'INPUT', 'BR', 'U', 'SUB', 'SUP', 'SMALL', 'MARK', 'FONT']);
+  const walk = container => {
+    let run = [];
+    const flushRun = () => {
+      if (!run.length) return;
+      const s = inline({ childNodes: run }).replace(/\n$/, '');
+      if (s.trim()) { s.split('\n').forEach(l => out.push(l)); out.push(''); }
+      run = [];
+    };
+    for (const n of container.childNodes) {
+      if (n.nodeType === 3 || (n.nodeType === 1 && INLINE.has(n.tagName))) { run.push(n); continue; }
+      if (n.nodeType !== 1) continue;
+      flushRun();
+      block(n);
+    }
+    flushRun();
+  };
+  walk(root);
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
