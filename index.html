@@ -199,6 +199,14 @@ body.matrix-mode .app { grid-template-columns: 210px 1fr; }
 }
 .comment .editbox:focus { border-color: var(--accent); }
 .comment .editbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.todochip, .donechip { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 4px; }
+.todochip { background: color-mix(in srgb, var(--urgency) 18%, transparent); color: var(--ink); }
+.donechip { background: color-mix(in srgb, var(--st-done) 15%, transparent); color: var(--ink); }
+.comment .head button[data-resolve] { color: var(--st-done); font-weight: 600; }
+.comment .head button[data-resolve]:hover { color: var(--st-done); }
+.todocount { color: var(--urgency); font-weight: 600; }
+.addstack { display: flex; flex-direction: column; gap: 6px; }
+.addstack .btn.on { background: color-mix(in srgb, var(--urgency) 15%, transparent); border-color: var(--urgency); }
 .addbox { display: flex; gap: 8px; align-items: flex-start; margin-top: 4px; }
 .addbox textarea {
   flex: 1; min-height: 40px; resize: vertical; padding: 8px 11px;
@@ -1034,12 +1042,14 @@ function renderList() {
   let h = '';
   for (const t of ts) {
     const snip = terms.length ? findSnippet(t, terms) : null;
+    const openTodos = t.comments.filter(c => c.todo && !c.resolved).length;
     h += '<button class="card ' + (t.id === ui.sel ? 'sel' : '') + '" data-id="' + t.id + '">'
       + '<div class="t">' + (terms.length ? hl(esc(t.title), terms) : esc(t.title)) + '</div>'
       + '<div class="meta">' + statusHTML(t.status) + rateHTML('imp', 'I', t.importance) + rateHTML('urg', 'U', t.urgency)
       + '<span title="' + abs(t.updated) + '">' + rel(t.updated) + '</span>'
       + (t.comments.length ? '<span>💬 ' + t.comments.length + '</span>' : '')
       + (t.files.length ? '<span>📎 ' + t.files.length + '</span>' : '')
+      + (openTodos ? '<span class="todocount" title="' + openTodos + ' open task(s)">☐ ' + openTodos + '</span>' : '')
       + (drafts[t.id] ? '<span class="draftmark" title="Unfinished comment draft">✎ draft</span>' : '')
       + '</div>'
       + (t.tags.length ? '<div class="tags">' + t.tags.map(g => '<span class="tagchip">#' + esc(g) + '</span>').join('') + '</div>' : '')
@@ -1051,7 +1061,7 @@ function renderList() {
 }
 
 function selectThread(id) {
-  if (ui.sel !== id) ui.editingC = null;
+  if (ui.sel !== id) { ui.editingC = null; ui.cTodo = false; }
   ui.sel = id;
   document.body.classList.add('detail-open');
   renderList(); renderDetail(); renderMatrix();
@@ -1119,13 +1129,22 @@ function renderDetail() {
          + '<textarea class="editbox" id="c-edit">' + esc(drafts['edit:' + c.id] != null ? drafts['edit:' + c.id] : c.text) + '</textarea>'
          + '<div class="editbtns"><button class="btn" id="c-edit-cancel">Cancel</button><button class="btn primary" id="c-edit-save">Save</button></div></div>';
     } else {
-      h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span>' + edited + '<span class="spacer"></span>'
+      const chips = c.todo ? (c.resolved
+        ? ' <span class="donechip" title="resolved ' + abs(c.resolved) + '">✓ RESOLVED</span>'
+        : ' <span class="todochip">TODO</span>') : '';
+      const taskBtn = c.todo ? (c.resolved
+        ? '<button data-reopen="' + c.id + '">reopen</button>'
+        : '<button data-resolve="' + c.id + '">resolve</button>') : '';
+      h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span>' + chips + edited + '<span class="spacer"></span>'
+         + taskBtn
          + '<button data-editc="' + c.id + '">edit</button>'
          + '<button data-delc="' + c.id + '">delete</button></div>'
          + '<div class="body md">' + renderMD(c.text) + '</div></div>';
     }
   }
-  h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter)">' + esc(drafts[t.id] || '') + '</textarea><button class="btn primary" id="c-add">Post</button></div></div>';
+  h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter · start with todo: for a task)">' + esc(drafts[t.id] || '') + '</textarea>'
+     + '<div class="addstack"><button class="btn primary" id="c-add">Post</button>'
+     + '<button class="btn' + (ui.cTodo ? ' on' : '') + '" id="c-todo" title="Post as a task with a resolve button">☐ todo</button></div></div></div>';
 
   h += '<div class="sect"><h3>Files <span class="count">' + t.files.length + '</span></h3>';
   h += '<div class="filezone" id="filezone">Drop files here, <button id="f-pick">browse</button>, or <button id="f-link">add a path / URL</button></div>';
@@ -1265,11 +1284,27 @@ function wireDetail(t) {
   cIn.addEventListener('input', () => setDraft(t.id, cIn.value));
   const post = () => {
     const text = cIn.value.trim(); if (!text) return;
-    t.comments.push({ id: uid(), ts: now(), text });
+    const isTodo = ui.cTodo || /^\s*todo\b[:\-]?/i.test(text);
+    const c = { id: uid(), ts: now(), text };
+    if (isTodo) c.todo = true;
+    t.comments.push(c);
     setDraft(t.id, '');
+    ui.cTodo = false;
     touch(t); renderDetail(); renderList();
     document.getElementById('c-in').focus();
   };
+  document.getElementById('c-todo').onclick = () => {
+    ui.cTodo = !ui.cTodo; renderDetail();
+    const ci = document.getElementById('c-in'); ci.focus(); ci.selectionStart = ci.selectionEnd = ci.value.length;
+  };
+  document.querySelectorAll('[data-resolve]').forEach(b => b.onclick = () => {
+    const c = t.comments.find(x => x.id === b.dataset.resolve);
+    if (c) { c.resolved = now(); touch(t); renderDetail(); renderList(); }
+  });
+  document.querySelectorAll('[data-reopen]').forEach(b => b.onclick = () => {
+    const c = t.comments.find(x => x.id === b.dataset.reopen);
+    if (c) { delete c.resolved; touch(t); renderDetail(); renderList(); }
+  });
   document.getElementById('c-add').onclick = post;
   cIn.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); post(); } };
   document.querySelectorAll('[data-editc]').forEach(b => b.onclick = () => {
@@ -1408,7 +1443,7 @@ function exportMD() {
     if (t.body.trim()) md += t.body.trim() + '\n\n';
     if (t.comments.length) {
       md += '### Comments\n\n';
-      for (const c of t.comments) md += '- _' + abs(c.ts) + '_ — ' + c.text.replace(/\n/g, '\n  ') + '\n';
+      for (const c of t.comments) md += '- ' + (c.todo ? (c.resolved ? '[x] ' : '[ ] ') : '') + '_' + abs(c.ts) + '_ — ' + c.text.replace(/\n/g, '\n  ') + '\n';
       md += '\n';
     }
     if (t.files.length) {
