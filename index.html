@@ -85,7 +85,18 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 
 /* ---------- layout ---------- */
 .app { flex: 1; display: grid; grid-template-columns: 210px 340px 1fr; min-height: 0; }
-body.matrix-mode .app { grid-template-columns: 210px 1fr; }
+body.matrix-mode .app, body.todos-mode .app { grid-template-columns: 210px 1fr; }
+#todobadge { color: var(--urgency); font-weight: 700; margin-left: 4px; font-size: 12px; }
+.todoscol { overflow-y: auto; padding: 16px 20px; background: var(--page); }
+.todoshead { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.7px; margin: 0 0 8px; }
+.todorow { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; max-width: 800px; align-items: flex-start; }
+.todorow.res { opacity: 0.6; }
+.todorow .tstat { border: 0; background: none; font-size: 17px; line-height: 1.2; padding: 0 2px; color: var(--st-done); flex: none; }
+.todorow .grow { flex: 1; min-width: 0; }
+.todorow .tmeta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.todorow .tthread { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
+.todorow .tthread:hover { text-decoration: underline; }
+.todos-empty { color: var(--muted); padding: 14px 2px; }
 .rail, .listcol { border-right: 1px solid var(--hairline); background: var(--surface); overflow-y: auto; min-height: 0; }
 .rail { padding: 12px; }
 .listcol { display: flex; flex-direction: column; }
@@ -295,7 +306,10 @@ body.matrix-mode .app { grid-template-columns: 210px 1fr; }
   .app { grid-template-columns: 1fr; }
   .rail { display: none; border-right: 0; border-bottom: 1px solid var(--hairline); max-height: 45vh; }
   .rail.open { display: block; }
-  body.matrix-mode .app { grid-template-columns: 1fr; }
+  body.matrix-mode .app, body.todos-mode .app { grid-template-columns: 1fr; }
+  body.todos-mode .todoscol { display: block; }
+  body.todos-mode .listcol { display: none; }
+  .todoscol { display: none; }
   .listcol { border-right: 0; }
   .detailcol, .matrixcol { display: none; }
   body.detail-open .detailcol { display: block; position: fixed; inset: 0; top: 49px; z-index: 50; background: var(--page); overflow-y: auto; }
@@ -316,6 +330,7 @@ body.matrix-mode .app { grid-template-columns: 210px 1fr; }
   <div class="seg" id="viewseg">
     <button data-view="list" class="on">List</button>
     <button data-view="matrix">Matrix</button>
+    <button data-view="todos">Todos<span id="todobadge"></span></button>
   </div>
   <button class="btn primary" id="btn-new">+ New</button>
   <span id="syncdot" style="display:none" title="Drive sync"></span>
@@ -347,6 +362,7 @@ body.matrix-mode .app { grid-template-columns: 210px 1fr; }
   </section>
   <section class="detailcol" id="detailcol"><div class="detail" id="detail"></div></section>
   <section class="matrixcol" id="matrixcol" style="display:none"></section>
+  <section class="todoscol" id="todoscol" style="display:none"></section>
 </div>
 
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
@@ -1034,6 +1050,7 @@ function renderList() {
   const head = document.getElementById('listhead');
   head.textContent = ts.length + ' of ' + total + ' thread' + (total === 1 ? '' : 's')
     + (ts.length < total ? ' (rest hidden by search/filters)' : '');
+  updateTodoBadge();
   const cards = document.getElementById('cards');
   if (!ts.length) {
     cards.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px 16px">' + (total ? 'Nothing matches.' : 'No threads yet — hit <b>+ New</b>.') + '</div>';
@@ -1429,6 +1446,49 @@ function renderMatrix() {
   col.querySelectorAll('.mxchip').forEach(c => c.onclick = () => selectThread(c.dataset.id));
 }
 
+/* =============== todos view =============== */
+function updateTodoBadge() {
+  const n = state.threads.reduce((s, t) => s + t.comments.filter(c => c.todo && !c.resolved).length, 0);
+  document.getElementById('todobadge').textContent = n ? ' ' + n : '';
+}
+function todoRow(t, c, resolved) {
+  return '<div class="todorow' + (resolved ? ' res' : '') + '">'
+    + '<button class="tstat" data-tgl="' + c.id + '" data-th="' + t.id + '" title="' + (resolved ? 'reopen' : 'resolve') + '">' + (resolved ? '☑' : '☐') + '</button>'
+    + '<div class="grow"><div class="md">' + renderMD(c.text) + '</div>'
+    + '<div class="tmeta"><button class="tthread" data-open="' + t.id + '">' + esc(t.title) + '</button>'
+    + ' · <span title="' + abs(c.ts) + '">' + rel(c.ts) + '</span>'
+    + (resolved ? ' · resolved ' + rel(c.resolved) : '') + '</div></div></div>';
+}
+function renderTodos() {
+  updateTodoBadge();
+  if (ui.view !== 'todos') return;
+  const col = document.getElementById('todoscol');
+  const ts = visibleThreads();                       /* same search + filters + sort as elsewhere */
+  const open = [], done = [];
+  for (const t of ts) for (const c of t.comments) if (c.todo) (c.resolved ? done : open).push({ t, c });
+  done.sort((a, b) => (b.c.resolved > a.c.resolved ? 1 : -1));
+  let h = '<div class="todoshead">' + open.length + ' open task' + (open.length === 1 ? '' : 's')
+        + (ts.length < state.threads.length ? ' · search/filters applied' : '') + '</div>';
+  if (!open.length) h += '<div class="todos-empty">Nothing open. Post a comment with the ☐ todo toggle (or a todo: prefix) to put a task here.</div>';
+  for (const x of open) h += todoRow(x.t, x.c, false);
+  if (done.length) {
+    h += '<div class="todoshead" style="margin-top:20px">' + done.length + ' resolved</div>';
+    for (const x of done.slice(0, 40)) h += todoRow(x.t, x.c, true);
+    if (done.length > 40) h += '<div class="todos-empty">…and ' + (done.length - 40) + ' older resolved tasks</div>';
+  }
+  col.innerHTML = h;
+  col.querySelectorAll('[data-tgl]').forEach(b => b.onclick = () => {
+    const t = getThread(b.dataset.th); if (!t) return;
+    const c = t.comments.find(x => x.id === b.dataset.tgl); if (!c) return;
+    if (c.resolved) delete c.resolved; else c.resolved = now();
+    touch(t); renderTodos(); renderList();
+  });
+  col.querySelectorAll('[data-open]').forEach(b => b.onclick = () => {
+    setView('list');
+    selectThread(b.dataset.open);
+  });
+}
+
 /* =============== import / export =============== */
 function exportJSON() { download('threads-' + stamp() + '.json', [JSON.stringify(state, null, 1)], 'application/json'); }
 function exportMD() {
@@ -1471,15 +1531,17 @@ async function handleImport(file) {
 }
 
 /* =============== global wiring =============== */
-function renderAll() { renderRail(); renderList(); renderDetail(); renderMatrix(); }
+function renderAll() { renderRail(); renderList(); renderDetail(); renderMatrix(); renderTodos(); }
 function setView(v) {
   ui.view = v;
   document.body.classList.toggle('matrix-mode', v === 'matrix');
-  document.getElementById('listcol').style.display = v === 'matrix' ? 'none' : '';
-  document.getElementById('detailcol').style.display = v === 'matrix' ? 'none' : '';
+  document.body.classList.toggle('todos-mode', v === 'todos');
+  document.getElementById('listcol').style.display = v === 'list' ? '' : 'none';
+  document.getElementById('detailcol').style.display = v === 'list' ? '' : 'none';
   document.getElementById('matrixcol').style.display = v === 'matrix' ? '' : 'none';
+  document.getElementById('todoscol').style.display = v === 'todos' ? '' : 'none';
   document.querySelectorAll('#viewseg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-  renderMatrix(); if (v === 'list') { renderList(); renderDetail(); }
+  renderMatrix(); renderTodos(); if (v === 'list') { renderList(); renderDetail(); }
 }
 document.querySelectorAll('#viewseg button').forEach(b => b.onclick = () => setView(b.dataset.view));
 document.getElementById('btn-new').onclick = () => {
@@ -1498,7 +1560,7 @@ window.addEventListener('resize', () => {
   }, 150);
 });
 const searchEl = document.getElementById('search');
-searchEl.oninput = () => { ui.q = searchEl.value; renderList(); renderMatrix(); };
+searchEl.oninput = () => { ui.q = searchEl.value; renderList(); renderMatrix(); renderTodos(); };
 document.getElementById('btn-filters').onclick = () => document.getElementById('rail').classList.toggle('open');
 
 const dataBtn = document.getElementById('btn-data'), dataMenu = document.getElementById('datamenu');
