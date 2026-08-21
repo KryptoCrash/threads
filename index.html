@@ -93,7 +93,7 @@ body.matrix-mode .app, body.todos-mode .app { grid-template-columns: 210px 1fr; 
 .todorow.res { opacity: 0.6; }
 .todorow .tstat { border: 0; background: none; font-size: 17px; line-height: 1.2; padding: 0 2px; color: var(--st-done); flex: none; }
 .todorow .grow { flex: 1; min-width: 0; }
-.todorow .tmeta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.todorow .tmeta { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .todorow .tthread { border: 0; background: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; }
 .todorow .tthread:hover { text-decoration: underline; }
 .todos-empty { color: var(--muted); padding: 14px 2px; }
@@ -1456,8 +1456,9 @@ function todoRow(t, c, resolved) {
     + '<button class="tstat" data-tgl="' + c.id + '" data-th="' + t.id + '" title="' + (resolved ? 'reopen' : 'resolve') + '">' + (resolved ? '☑' : '☐') + '</button>'
     + '<div class="grow"><div class="md">' + renderMD(c.text) + '</div>'
     + '<div class="tmeta"><button class="tthread" data-open="' + t.id + '">' + esc(t.title) + '</button>'
-    + ' · <span title="' + abs(c.ts) + '">' + rel(c.ts) + '</span>'
-    + (resolved ? ' · resolved ' + rel(c.resolved) : '') + '</div></div></div>';
+    + rateHTML('imp', 'I', t.importance) + rateHTML('urg', 'U', t.urgency)
+    + '<span title="' + abs(c.ts) + '">' + rel(c.ts) + '</span>'
+    + (resolved ? '<span>resolved ' + rel(c.resolved) + '</span>' : '') + '</div></div></div>';
 }
 function renderTodos() {
   updateTodoBadge();
