@@ -87,9 +87,14 @@ header .brand small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .app { flex: 1; display: grid; grid-template-columns: 210px 340px 1fr; min-height: 0; }
 body.matrix-mode .app, body.todos-mode .app { grid-template-columns: 210px 1fr; }
 #todobadge { color: var(--urgency); font-weight: 700; margin-left: 4px; font-size: 12px; }
+#blockbadge { color: var(--danger); font-weight: 700; margin-left: 4px; font-size: 12px; }
+.blockchip { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--ink); }
+.blockcount { color: var(--danger); font-weight: 600; }
+.addstack .btn.bon { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); }
 .todoscol { overflow-y: auto; padding: 16px 20px; background: var(--page); }
 .todoshead { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.7px; margin: 0 0 8px; }
-.todorow { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; max-width: 800px; align-items: flex-start; }
+.todorow { display: flex; gap: 10px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; max-width: 800px; align-items: flex-start; cursor: pointer; }
+.todorow:hover { border-color: var(--accent); }
 .todorow.res { opacity: 0.6; }
 .todorow .tstat { border: 0; background: none; font-size: 17px; line-height: 1.2; padding: 0 2px; color: var(--st-done); flex: none; }
 .todorow .grow { flex: 1; min-width: 0; }
@@ -176,7 +181,8 @@ body.matrix-mode .app, body.todos-mode .app { grid-template-columns: 210px 1fr; 
 #d-body:empty::before { content: 'Add notes — type "- " to start a list…'; color: var(--muted); }
 #d-body li:has(> input[type=checkbox]:first-child) { list-style: none; margin-left: -20px; }
 #d-body input[type=checkbox] { cursor: pointer; }
-.comment { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; }
+.comment { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; transition: box-shadow 0.6s; }
+.comment.flash { box-shadow: 0 0 0 2.5px var(--urgency); }
 .comment .head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
 .comment .head .spacer { flex: 1; }
 .comment .head button { border: 0; background: none; color: var(--muted); font-size: 12px; padding: 0; }
@@ -331,6 +337,7 @@ body.matrix-mode .app, body.todos-mode .app { grid-template-columns: 210px 1fr; 
     <button data-view="list" class="on">List</button>
     <button data-view="matrix">Matrix</button>
     <button data-view="todos">Todos<span id="todobadge"></span></button>
+    <button data-view="blockers">Blockers<span id="blockbadge"></span></button>
   </div>
   <button class="btn primary" id="btn-new">+ New</button>
   <span id="syncdot" style="display:none" title="Drive sync"></span>
@@ -1050,7 +1057,7 @@ function renderList() {
   const head = document.getElementById('listhead');
   head.textContent = ts.length + ' of ' + total + ' thread' + (total === 1 ? '' : 's')
     + (ts.length < total ? ' (rest hidden by search/filters)' : '');
-  updateTodoBadge();
+  updateTaskBadges();
   const cards = document.getElementById('cards');
   if (!ts.length) {
     cards.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px 16px">' + (total ? 'Nothing matches.' : 'No threads yet — hit <b>+ New</b>.') + '</div>';
@@ -1059,7 +1066,8 @@ function renderList() {
   let h = '';
   for (const t of ts) {
     const snip = terms.length ? findSnippet(t, terms) : null;
-    const openTodos = t.comments.filter(c => c.todo && !c.resolved).length;
+    const openTodos = t.comments.filter(c => c.todo && !c.resolved && c.kind !== 'blocker').length;
+    const openBlockers = t.comments.filter(c => c.todo && !c.resolved && c.kind === 'blocker').length;
     h += '<button class="card ' + (t.id === ui.sel ? 'sel' : '') + '" data-id="' + t.id + '">'
       + '<div class="t">' + (terms.length ? hl(esc(t.title), terms) : esc(t.title)) + '</div>'
       + '<div class="meta">' + statusHTML(t.status) + rateHTML('imp', 'I', t.importance) + rateHTML('urg', 'U', t.urgency)
@@ -1067,6 +1075,7 @@ function renderList() {
       + (t.comments.length ? '<span>💬 ' + t.comments.length + '</span>' : '')
       + (t.files.length ? '<span>📎 ' + t.files.length + '</span>' : '')
       + (openTodos ? '<span class="todocount" title="' + openTodos + ' open task(s)">☐ ' + openTodos + '</span>' : '')
+      + (openBlockers ? '<span class="blockcount" title="' + openBlockers + ' open blocker(s)">⛔ ' + openBlockers + '</span>' : '')
       + (drafts[t.id] ? '<span class="draftmark" title="Unfinished comment draft">✎ draft</span>' : '')
       + '</div>'
       + (t.tags.length ? '<div class="tags">' + t.tags.map(g => '<span class="tagchip">#' + esc(g) + '</span>').join('') + '</div>' : '')
@@ -1078,7 +1087,7 @@ function renderList() {
 }
 
 function selectThread(id) {
-  if (ui.sel !== id) { ui.editingC = null; ui.cTodo = false; }
+  if (ui.sel !== id) { ui.editingC = null; ui.cKind = null; }
   ui.sel = id;
   document.body.classList.add('detail-open');
   renderList(); renderDetail(); renderMatrix();
@@ -1148,11 +1157,11 @@ function renderDetail() {
     } else {
       const chips = c.todo ? (c.resolved
         ? ' <span class="donechip" title="resolved ' + abs(c.resolved) + '">✓ RESOLVED</span>'
-        : ' <span class="todochip">TODO</span>') : '';
+        : (c.kind === 'blocker' ? ' <span class="blockchip">⛔ BLOCKER</span>' : ' <span class="todochip">TODO</span>')) : '';
       const taskBtn = c.todo ? (c.resolved
         ? '<button data-reopen="' + c.id + '">reopen</button>'
         : '<button data-resolve="' + c.id + '">resolve</button>') : '';
-      h += '<div class="comment"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span>' + chips + edited + '<span class="spacer"></span>'
+      h += '<div class="comment" data-cid="' + c.id + '"><div class="head"><span title="' + abs(c.ts) + '">' + abs(c.ts) + '</span>' + chips + edited + '<span class="spacer"></span>'
          + taskBtn
          + '<button data-editc="' + c.id + '">edit</button>'
          + '<button data-delc="' + c.id + '">delete</button></div>'
@@ -1161,7 +1170,8 @@ function renderDetail() {
   }
   h += '</div><div class="addbox"><textarea id="c-in" placeholder="Add a comment…  (Ctrl+Enter · start with todo: for a task)">' + esc(drafts[t.id] || '') + '</textarea>'
      + '<div class="addstack"><button class="btn primary" id="c-add">Post</button>'
-     + '<button class="btn' + (ui.cTodo ? ' on' : '') + '" id="c-todo" title="Post as a task with a resolve button">☐ todo</button></div></div></div>';
+     + '<button class="btn' + (ui.cKind === 'todo' ? ' on' : '') + '" id="c-todo" title="Post as a task with a resolve button">☐ todo</button>'
+     + '<button class="btn' + (ui.cKind === 'blocker' ? ' bon' : '') + '" id="c-block" title="Post as a blocker — something stopping progress">⛔ blocker</button></div></div></div>';
 
   h += '<div class="sect"><h3>Files <span class="count">' + t.files.length + '</span></h3>';
   h += '<div class="filezone" id="filezone">Drop files here, <button id="f-pick">browse</button>, or <button id="f-link">add a path / URL</button></div>';
@@ -1301,19 +1311,23 @@ function wireDetail(t) {
   cIn.addEventListener('input', () => setDraft(t.id, cIn.value));
   const post = () => {
     const text = cIn.value.trim(); if (!text) return;
-    const isTodo = ui.cTodo || /^\s*todo\b[:\-]?/i.test(text);
+    const auto = /^\s*block(?:er|ed)?\b[:\-]?/i.test(text) ? 'blocker'
+               : /^\s*todo\b[:\-]?/i.test(text) ? 'todo' : null;
+    const kind = ui.cKind || auto;
     const c = { id: uid(), ts: now(), text };
-    if (isTodo) c.todo = true;
+    if (kind) { c.todo = true; if (kind === 'blocker') c.kind = 'blocker'; }
     t.comments.push(c);
     setDraft(t.id, '');
-    ui.cTodo = false;
+    ui.cKind = null;
     touch(t); renderDetail(); renderList();
     document.getElementById('c-in').focus();
   };
-  document.getElementById('c-todo').onclick = () => {
-    ui.cTodo = !ui.cTodo; renderDetail();
+  const kindToggle = k => () => {
+    ui.cKind = ui.cKind === k ? null : k; renderDetail();
     const ci = document.getElementById('c-in'); ci.focus(); ci.selectionStart = ci.selectionEnd = ci.value.length;
   };
+  document.getElementById('c-todo').onclick = kindToggle('todo');
+  document.getElementById('c-block').onclick = kindToggle('blocker');
   document.querySelectorAll('[data-resolve]').forEach(b => b.onclick = () => {
     const c = t.comments.find(x => x.id === b.dataset.resolve);
     if (c) { c.resolved = now(); touch(t); renderDetail(); renderList(); }
@@ -1447,12 +1461,14 @@ function renderMatrix() {
 }
 
 /* =============== todos view =============== */
-function updateTodoBadge() {
-  const n = state.threads.reduce((s, t) => s + t.comments.filter(c => c.todo && !c.resolved).length, 0);
-  document.getElementById('todobadge').textContent = n ? ' ' + n : '';
+function updateTaskBadges() {
+  let td = 0, bl = 0;
+  for (const t of state.threads) for (const c of t.comments) if (c.todo && !c.resolved) (c.kind === 'blocker' ? bl++ : td++);
+  document.getElementById('todobadge').textContent = td ? ' ' + td : '';
+  document.getElementById('blockbadge').textContent = bl ? ' ' + bl : '';
 }
 function todoRow(t, c, resolved) {
-  return '<div class="todorow' + (resolved ? ' res' : '') + '">'
+  return '<div class="todorow' + (resolved ? ' res' : '') + '" data-th="' + t.id + '" data-cid="' + c.id + '" title="Open this task in its thread">'
     + '<button class="tstat" data-tgl="' + c.id + '" data-th="' + t.id + '" title="' + (resolved ? 'reopen' : 'resolve') + '">' + (resolved ? '☑' : '☐') + '</button>'
     + '<div class="grow"><div class="md">' + renderMD(c.text) + '</div>'
     + '<div class="tmeta"><button class="tthread" data-open="' + t.id + '">' + esc(t.title) + '</button>'
@@ -1461,16 +1477,23 @@ function todoRow(t, c, resolved) {
     + (resolved ? '<span>resolved ' + rel(c.resolved) + '</span>' : '') + '</div></div></div>';
 }
 function renderTodos() {
-  updateTodoBadge();
-  if (ui.view !== 'todos') return;
+  updateTaskBadges();
+  if (ui.view !== 'todos' && ui.view !== 'blockers') return;
+  const kind = ui.view === 'blockers' ? 'blocker' : 'todo';
+  const noun = kind === 'blocker' ? 'blocker' : 'task';
   const col = document.getElementById('todoscol');
   const ts = visibleThreads();                       /* same search + filters + sort as elsewhere */
   const open = [], done = [];
-  for (const t of ts) for (const c of t.comments) if (c.todo) (c.resolved ? done : open).push({ t, c });
+  for (const t of ts) for (const c of t.comments) {
+    if (!c.todo) continue;
+    if ((c.kind === 'blocker') !== (kind === 'blocker')) continue;
+    (c.resolved ? done : open).push({ t, c });
+  }
   done.sort((a, b) => (b.c.resolved > a.c.resolved ? 1 : -1));
-  let h = '<div class="todoshead">' + open.length + ' open task' + (open.length === 1 ? '' : 's')
+  let h = '<div class="todoshead">' + open.length + ' open ' + noun + (open.length === 1 ? '' : 's')
         + (ts.length < state.threads.length ? ' · search/filters applied' : '') + '</div>';
-  if (!open.length) h += '<div class="todos-empty">Nothing open. Post a comment with the ☐ todo toggle (or a todo: prefix) to put a task here.</div>';
+  if (!open.length) h += '<div class="todos-empty">Nothing open. Post a comment with the '
+    + (kind === 'blocker' ? '⛔ blocker toggle (or a blocker: prefix)' : '☐ todo toggle (or a todo: prefix)') + ' to put a ' + noun + ' here.</div>';
   for (const x of open) h += todoRow(x.t, x.c, false);
   if (done.length) {
     h += '<div class="todoshead" style="margin-top:20px">' + done.length + ' resolved</div>';
@@ -1484,10 +1507,24 @@ function renderTodos() {
     if (c.resolved) delete c.resolved; else c.resolved = now();
     touch(t); renderTodos(); renderList();
   });
-  col.querySelectorAll('[data-open]').forEach(b => b.onclick = () => {
+  col.querySelectorAll('[data-open]').forEach(b => b.onclick = e => {
+    e.stopPropagation();
     setView('list');
     selectThread(b.dataset.open);
   });
+  col.querySelectorAll('.todorow').forEach(r => r.onclick = e => {
+    if (e.target.closest('[data-tgl], [data-open], a, input')) return;
+    gotoComment(r.dataset.th, r.dataset.cid);
+  });
+}
+function gotoComment(tid, cid) {
+  setView('list');
+  selectThread(tid);
+  const el = document.querySelector('#detail [data-cid="' + cid + '"]');
+  if (!el) return;
+  if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1600);
 }
 
 /* =============== import / export =============== */
@@ -1504,7 +1541,7 @@ function exportMD() {
     if (t.body.trim()) md += t.body.trim() + '\n\n';
     if (t.comments.length) {
       md += '### Comments\n\n';
-      for (const c of t.comments) md += '- ' + (c.todo ? (c.resolved ? '[x] ' : '[ ] ') : '') + '_' + abs(c.ts) + '_ — ' + c.text.replace(/\n/g, '\n  ') + '\n';
+      for (const c of t.comments) md += '- ' + (c.todo ? (c.resolved ? '[x] ' : '[ ] ') : '') + (c.kind === 'blocker' ? '**blocker** ' : '') + '_' + abs(c.ts) + '_ — ' + c.text.replace(/\n/g, '\n  ') + '\n';
       md += '\n';
     }
     if (t.files.length) {
@@ -1536,11 +1573,11 @@ function renderAll() { renderRail(); renderList(); renderDetail(); renderMatrix(
 function setView(v) {
   ui.view = v;
   document.body.classList.toggle('matrix-mode', v === 'matrix');
-  document.body.classList.toggle('todos-mode', v === 'todos');
+  document.body.classList.toggle('todos-mode', v === 'todos' || v === 'blockers');
   document.getElementById('listcol').style.display = v === 'list' ? '' : 'none';
   document.getElementById('detailcol').style.display = v === 'list' ? '' : 'none';
   document.getElementById('matrixcol').style.display = v === 'matrix' ? '' : 'none';
-  document.getElementById('todoscol').style.display = v === 'todos' ? '' : 'none';
+  document.getElementById('todoscol').style.display = (v === 'todos' || v === 'blockers') ? '' : 'none';
   document.querySelectorAll('#viewseg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   renderMatrix(); renderTodos(); if (v === 'list') { renderList(); renderDetail(); }
 }
